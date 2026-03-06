@@ -1,0 +1,49 @@
+/// common.rs: In this file, we made some disassemble tools to debug.
+use crate::chunk::{Chunk, OpCode};
+
+/// Just print the opcode name to the console.
+pub fn simple_instruction(_chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
+    println!("{:?}", opcode);
+    offset + 1
+}
+
+/// Print the constant opcode value to the console.
+pub fn constant_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
+    let val = chunk.constants()[chunk.code()[offset + 1] as usize];
+    println!("{:?} {}", opcode, val);
+    offset + 2
+}
+
+/// Disassemble chunk.
+pub fn disassemble(chunk: &Chunk, name: &str) {
+    // Print the name title so that we know which chunk we are looking.
+    println!("== {} ==", name);
+    println!("offset line opcode");
+    let mut offset = 0;
+    // Execute each instruction (the size of instruction may be different).
+    while offset < chunk.code().len() {
+        offset = disassemble_instruction(chunk, offset);
+    }
+}
+
+/// Disassemble and execute instruction with an offset in the chunk.
+pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
+    // Print the offset, line number and opcode.
+    // fmt: 000000 0001 OpReturn
+    if offset > 0 && chunk.get_line(offset) == chunk.get_line(offset - 1) {
+        print!("{:06} {:>4} ", offset, "-");
+    } else {
+        print!("{:06} {:04} ", offset, chunk.get_line(offset));
+    }
+    let byte = chunk.code()[offset];
+    match OpCode::from_repr(byte) {
+        Some(opcode) => match opcode {
+            OpCode::OpReturn => simple_instruction(chunk, offset, opcode),
+            OpCode::OpConstant => constant_instruction(chunk, offset, opcode),
+        },
+        None => {
+            println!("Unknown opcode: {}", byte);
+            offset + 1
+        }
+    }
+}

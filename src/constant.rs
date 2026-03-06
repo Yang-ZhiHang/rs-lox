@@ -16,7 +16,7 @@ impl Constant {
     }
 
     /// Getter of member `values`.
-    pub fn values(&self, index: usize) -> f64 {
-        self.values[index]
+    pub fn values(&self) -> &[f64] {
+        &self.values
     }
 }

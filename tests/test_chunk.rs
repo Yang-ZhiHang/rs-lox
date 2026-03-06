@@ -6,7 +6,7 @@ use lox::chunk::{Chunk, OpCode};
 fn test_write_single_opcode() {
     let mut chunk = Chunk::new();
     chunk.write(OpCode::OpReturn, 1);
-    assert_eq!(chunk.code_len(), 1);
+    assert_eq!(chunk.code().len(), 1);
 }
 
 #[test]
@@ -15,7 +15,7 @@ fn test_write_multiple_opcodes() {
     chunk.write(OpCode::OpReturn, 1);
     chunk.write(OpCode::OpReturn, 1);
     chunk.write(OpCode::OpReturn, 2);
-    assert_eq!(chunk.code_len(), 3);
+    assert_eq!(chunk.code().len(), 3);
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_write_opcode_with_operand() {
     chunk.write(OpCode::OpConstant, 1);
     chunk.write(index, 1);
     // OpConstant + operand index = 2 bytes
-    assert_eq!(chunk.code_len(), 2);
+    assert_eq!(chunk.code().len(), 2);
 }
 
 // ==================== line (RLE) ====================
@@ -34,7 +34,7 @@ fn test_write_opcode_with_operand() {
 fn test_line_single_instruction() {
     let mut chunk = Chunk::new();
     chunk.write(OpCode::OpReturn, 1);
-    assert_eq!(chunk.line(0), 1);
+    assert_eq!(chunk.get_line(0), 1);
 }
 
 #[test]
@@ -43,9 +43,9 @@ fn test_line_multiple_instructions_same_line() {
     chunk.write(OpCode::OpReturn, 3);
     chunk.write(OpCode::OpReturn, 3);
     chunk.write(OpCode::OpReturn, 3);
-    assert_eq!(chunk.line(0), 3);
-    assert_eq!(chunk.line(1), 3);
-    assert_eq!(chunk.line(2), 3);
+    assert_eq!(chunk.get_line(0), 3);
+    assert_eq!(chunk.get_line(1), 3);
+    assert_eq!(chunk.get_line(2), 3);
 }
 
 #[test]
@@ -54,9 +54,9 @@ fn test_line_multiple_instructions_different_lines() {
     chunk.write(OpCode::OpReturn, 1);
     chunk.write(OpCode::OpReturn, 2);
     chunk.write(OpCode::OpReturn, 3);
-    assert_eq!(chunk.line(0), 1);
-    assert_eq!(chunk.line(1), 2);
-    assert_eq!(chunk.line(2), 3);
+    assert_eq!(chunk.get_line(0), 1);
+    assert_eq!(chunk.get_line(1), 2);
+    assert_eq!(chunk.get_line(2), 3);
 }
 
 #[test]
@@ -67,9 +67,9 @@ fn test_line_mixed() {
     chunk.write(0_usize, 1);
     // line 2: 1 instruction
     chunk.write(OpCode::OpReturn, 2);
-    assert_eq!(chunk.line(0), 1);
-    assert_eq!(chunk.line(1), 1);
-    assert_eq!(chunk.line(2), 2);
+    assert_eq!(chunk.get_line(0), 1);
+    assert_eq!(chunk.get_line(1), 1);
+    assert_eq!(chunk.get_line(2), 2);
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn test_line_out_of_bounds_panics() {
     let mut chunk = Chunk::new();
     chunk.write(OpCode::OpReturn, 1);
     // offset 1 does not exist, should panic
-    chunk.line(1);
+    chunk.get_line(1);
 }
 
 // ==================== RLE structure ====================
@@ -90,7 +90,7 @@ fn test_rle_same_line_produces_single_entry() {
     chunk.write(OpCode::OpReturn, 5);
     chunk.write(OpCode::OpReturn, 5);
     // All three on line 5, RLE should have only 1 entry
-    assert_eq!(chunk.line_len(), 1);
+    assert_eq!(chunk.line().len(), 1);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn test_rle_different_lines_produce_multiple_entries() {
     chunk.write(OpCode::OpReturn, 2);
     chunk.write(OpCode::OpReturn, 3);
     // Each on a different line, RLE should have 3 entries
-    assert_eq!(chunk.line_len(), 3);
+    assert_eq!(chunk.line().len(), 3);
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn test_rle_skipped_lines_do_not_produce_empty_entries() {
     chunk.write(OpCode::OpReturn, 1);
     chunk.write(OpCode::OpReturn, 10);
     // Should only have 2 RLE entries, no empty slots for lines 2-9
-    assert_eq!(chunk.line_len(), 2);
+    assert_eq!(chunk.line().len(), 2);
 }
 
 // ==================== write_constant ====================
@@ -130,7 +130,7 @@ fn test_write_constant_returns_correct_index() {
 fn test_write_constant_value_is_retrievable() {
     let mut chunk = Chunk::new();
     let index = chunk.write_constant(3.14);
-    assert_eq!(chunk.constant_value(index), 3.14);
+    assert_eq!(chunk.constants()[index], 3.14);
 }
 
 #[test]
@@ -139,6 +139,6 @@ fn test_write_multiple_constants() {
     let values = [1.1, 2.2, 3.3, 4.4];
     let indices: Vec<usize> = values.iter().map(|&v| chunk.write_constant(v)).collect();
     for (i, &idx) in indices.iter().enumerate() {
-        assert_eq!(chunk.constant_value(idx), values[i]);
+        assert_eq!(chunk.constants()[idx], values[i]);
     }
 }

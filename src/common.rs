@@ -1,4 +1,6 @@
 /// common.rs: In this file, we made some disassemble tools to debug.
+/// We'd better make the file not to compile in release mode.
+/// Use #[cfg(debug_assertions)] when import this module.
 use crate::chunk::{Chunk, OpCode};
 
 /// Just print the opcode name to the console.
@@ -31,6 +33,7 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
     // Print the offset, line number and opcode.
     // fmt: 000000 0001 OpReturn
     if offset > 0 && chunk.get_line(offset) == chunk.get_line(offset - 1) {
+        // Here we use `:>4` instead of `:04` because string "-" is not number.
         print!("{:06} {:>4} ", offset, "-");
     } else {
         print!("{:06} {:04} ", offset, chunk.get_line(offset));
@@ -40,6 +43,7 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         Some(opcode) => match opcode {
             OpCode::OpReturn => simple_instruction(chunk, offset, opcode),
             OpCode::OpConstant => constant_instruction(chunk, offset, opcode),
+            OpCode::OpNegate => simple_instruction(chunk, offset, opcode),
         },
         None => {
             println!("Unknown opcode: {}", byte);

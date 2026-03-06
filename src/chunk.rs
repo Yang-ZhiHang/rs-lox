@@ -1,4 +1,4 @@
-use crate::constant::Constant;
+use crate::constant::{Constant, Value};
 
 // Use strum to automatically distribute number for enum member.
 #[derive(Clone, Copy, Debug, strum::FromRepr)]
@@ -7,6 +7,8 @@ pub enum OpCode {
     OpReturn,
     /// There is still one byte of space after `OpConstant` for storing the constant index.
     OpConstant,
+    /// Unary
+    OpNegate,
 }
 
 /// A trait for types that can be written into the chunk as a single byte.
@@ -59,7 +61,7 @@ impl Chunk {
     }
 
     /// Getter of member `constants`.
-    pub fn constants(&self) -> &[f64] {
+    pub fn constants(&self) -> &[Value] {
         &self.constants.values()
     }
 
@@ -93,7 +95,7 @@ impl Chunk {
 
     /// Write a constant value to the constant area and return the value index
     /// in the constant area.
-    pub fn write_constant(&mut self, value: f64) -> usize {
+    pub fn write_constant(&mut self, value: Value) -> usize {
         self.constants.write(value)
     }
 }

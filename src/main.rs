@@ -15,13 +15,11 @@ fn main() {
     let mut vm = VM::new();
     let mut chunk = Chunk::new();
     chunk.write(OpCode::OpConstant, 1);
-    let constant_index = chunk.write_constant(1.0);
-    chunk.write(constant_index, 1);
-    chunk.write(OpCode::OpConstant, 2);
     let constant_index = chunk.write_constant(1.2);
-    chunk.write(constant_index, 2);
-    chunk.write(OpCode::OpReturn, 3);
+    chunk.write(constant_index, 1);
+    chunk.write(OpCode::OpNegate, 1);
+    chunk.write(OpCode::OpReturn, 1);
     #[cfg(debug_assertions)]
     disassemble(&chunk, "test chunk");
-    vm.interpret(chunk);
+    vm.interpret(&chunk);
 }

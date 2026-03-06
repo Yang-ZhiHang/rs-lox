@@ -1,5 +1,7 @@
+pub type Value = f64;
+
 pub struct Constant {
-    values: Vec<f64>,
+    values: Vec<Value>,
 }
 
 impl Constant {
@@ -10,13 +12,13 @@ impl Constant {
 
     /// Write a constant value to the constant area and return the value index
     /// in the constant area.
-    pub fn write(&mut self, value: f64) -> usize {
+    pub fn write(&mut self, value: Value) -> usize {
         self.values.push(value);
         self.values.len() - 1
     }
 
     /// Getter of member `values`.
-    pub fn values(&self) -> &[f64] {
+    pub fn values(&self) -> &[Value] {
         &self.values
     }
 }

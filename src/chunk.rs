@@ -1,5 +1,6 @@
 use crate::constant::Constant;
 
+// Use strum to automatically distribute number for enum member.
 #[derive(Clone, Copy, Debug, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
@@ -25,6 +26,8 @@ impl IntoU8 for usize {
 }
 
 /// `Chunk` is used to store loads of `OpCode`.
+/// All of the member of `Chunk` is private, because the members are related to each
+/// other (instead of pure data container), which will cause chaos if make them public.
 pub struct Chunk {
     /// Code area (code segment)
     /// We use `u8` to be the element type instead of `OpCode` because there might
@@ -33,7 +36,10 @@ pub struct Chunk {
     /// Constant area (BSS or heap).
     constants: Constant,
     /// Container to stored the line number of each code.
-    line: Vec<u32>,
+    /// fmt: (line number, count)
+    /// We use this format (RLE) instead of making line number to be index and count to be
+    /// value, because we shouldn't store empty line.
+    line: Vec<(u32, u32)>,
 }
 
 impl Chunk {
@@ -49,7 +55,43 @@ impl Chunk {
     /// Write a byte to the chunk.
     pub fn write(&mut self, byte: impl IntoU8, line: u32) {
         self.code.push(byte.into_u8());
-        self.line.push(line);
+        match self.line.last_mut() {
+            // Increase line number count if the line number already exists.
+            Some(pair) if pair.0 == line => pair.1 += 1,
+            // Push a new space to line list if it's empty or new line number.
+            _ => self.line.push((line, 1)),
+        }
+    }
+
+    /// Write a constant value to the constant area and return the value index
+    /// in the constant area.
+    pub fn write_constant(&mut self, value: f64) -> usize {
+        self.constants.write(value)
+    }
+
+    /// Get the line number of opcode in given offset.
+    pub fn line(&self, offset: usize) -> u32 {
+        let mut acc = 0;
+        for pair in self.line.iter() {
+            acc += pair.1;
+            if acc > offset as u32 {
+                return pair.0;
+            }
+        }
+        panic!("Unavailable offset.")
+    }
+
+    /// Just print the opcode name to the console.
+    pub fn simple_instruction(&self, offset: usize, opcode: OpCode) -> usize {
+        println!("{:?}", opcode);
+        offset + 1
+    }
+
+    /// Print the constant opcode value to the console.
+    pub fn constant_instruction(&self, offset: usize, opcode: OpCode) -> usize {
+        let val = self.constants.values(self.code[offset + 1] as usize);
+        println!("{:?} {}", opcode, val);
+        offset + 2
     }
 
     /// Disassemble chunk.
@@ -68,10 +110,10 @@ impl Chunk {
     pub fn disassemble_instruction(&self, offset: usize) -> usize {
         // Print the offset, line number and opcode.
         // fmt: 000000 0001 OpReturn
-        if offset > 0 && self.line[offset] == self.line[offset - 1] {
-            print!("{:06} {:04} ", offset, "-");
+        if offset > 0 && self.line(offset) == self.line(offset - 1) {
+            print!("{:06} {:>4} ", offset, "-");
         } else {
-            print!("{:06} {:04} ", offset, self.line[offset]);
+            print!("{:06} {:04} ", offset, self.line(offset));
         }
         let byte = self.code[offset];
         match OpCode::from_repr(byte) {
@@ -85,23 +127,22 @@ impl Chunk {
             }
         }
     }
+}
 
-    /// Write a constant value to the constant area and return the value index
-    /// in the constant area.
-    pub fn write_constant(&mut self, value: f64) -> usize {
-        self.constants.write(value)
+/// Test-only helpers. Hidden from documentation but always compiled,
+/// because integration tests in `tests/` are a separate crate and
+/// `#[cfg(test)]` would make these methods invisible to them.
+#[doc(hidden)]
+impl Chunk {
+    pub fn code_len(&self) -> usize {
+        self.code.len()
     }
 
-    /// Just print the opcode name to the console.
-    pub fn simple_instruction(&self, offset: usize, opcode: OpCode) -> usize {
-        println!("{:?}", opcode);
-        offset + 1
+    pub fn line_len(&self) -> usize {
+        self.line.len()
     }
 
-    /// Print the constant opcode value to the console.
-    pub fn constant_instruction(&self, offset: usize, opcode: OpCode) -> usize {
-        let val = self.constants.values(self.code[offset + 1] as usize);
-        println!("{:?} {}", opcode, val);
-        offset + 2
+    pub fn constant_value(&self, index: usize) -> f64 {
+        self.constants.values(index)
     }
 }

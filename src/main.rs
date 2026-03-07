@@ -1,40 +1,50 @@
+use std::env;
+
 pub mod chunk;
 #[cfg(debug_assertions)]
 pub mod common;
 pub mod constant;
+pub mod file;
+pub mod macros;
 pub mod tokenizer;
 pub mod vm;
-pub mod macros;
 
-use chunk::{Chunk, OpCode};
+use crate::{file::read_file, tokenizer::Tokenizer, vm::VM};
 
-#[cfg(debug_assertions)]
-use crate::common::disassemble;
-use crate::vm::VM;
+/// Compile source code into byte code.
+pub fn compile(source: &str) -> &[u8] {
+    let mut tokenizer = Tokenizer::new(source);
+    let tokens = tokenizer.scan_tokens();
+    todo!()
+}
+
+pub fn run_file(vm: &VM, path: &str) {
+    // Read source code
+    let source = read_file(path);
+    let byte_code = compile(&source);
+}
+
+/// Read-Eval-Print-Loop.
+/// A type of console interaction.
+pub fn repl(vm: &VM) {
+    let mut line = String::new();
+    loop {
+        print!(">>> ");
+        match std::io::stdin().read_line(&mut line) {
+            Ok(_) => {
+                todo!()
+            }
+            Err(error) => println!("Error reading input: {}", error),
+        }
+    }
+}
 
 fn main() {
     let mut vm = VM::new();
-    let mut chunk = Chunk::new();
-
-    let constant_index = chunk.write_constant(1.2);
-    chunk.write(OpCode::Constant, 1);
-    chunk.write(constant_index, 1);
-
-    let constant_index = chunk.write_constant(3.4);
-    chunk.write(OpCode::Constant, 1);
-    chunk.write(constant_index, 1);
-
-    chunk.write(OpCode::BinaryAdd, 1);
-
-    let constant_index = chunk.write_constant(5.6);
-    chunk.write(OpCode::Constant, 1);
-    chunk.write(constant_index, 1);
-
-    chunk.write(OpCode::BinaryDivide, 1);
-    chunk.write(OpCode::UnaryNegate, 1);
-    chunk.write(OpCode::Return, 1);
-
-    #[cfg(debug_assertions)]
-    disassemble(&chunk, "test chunk");
-    vm.interpret(&chunk);
+    let args: Vec<String> = env::args().collect();
+    match args.len() {
+        1 => run_file(&mut vm, &args[1]),
+        2 => repl(&mut vm),
+        _ => println!("Usage: lox [PATH]\n"),
+    }
 }

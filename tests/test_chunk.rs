@@ -129,8 +129,8 @@ fn test_write_constant_returns_correct_index() {
 #[test]
 fn test_write_constant_value_is_retrievable() {
     let mut chunk = Chunk::new();
-    let index = chunk.write_constant(3.14);
-    assert_eq!(chunk.constants()[index], 3.14);
+    let index = chunk.write_constant(3.1);
+    assert_eq!(chunk.constants()[index], 3.1);
 }
 
 #[test]

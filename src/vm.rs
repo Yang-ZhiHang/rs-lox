@@ -27,6 +27,12 @@ pub struct VM {
     stack_top: usize,
 }
 
+impl Default for VM {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VM {
     /// Create a empty virtual machine.
     /// chunk should be pass in when we call `interpret` function.

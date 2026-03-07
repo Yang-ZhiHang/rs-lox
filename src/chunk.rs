@@ -50,6 +50,12 @@ pub struct Chunk {
     line: Vec<(u32, u32)>,
 }
 
+impl Default for Chunk {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Chunk {
     /// Create a empty chunk object.
     pub fn new() -> Self {
@@ -67,7 +73,7 @@ impl Chunk {
 
     /// Getter of member `constants`.
     pub fn constants(&self) -> &[Value] {
-        &self.constants.values()
+        self.constants.values()
     }
 
     /// Getter of member `line`.

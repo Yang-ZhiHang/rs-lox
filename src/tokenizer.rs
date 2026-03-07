@@ -6,17 +6,6 @@ pub struct Token {
     pub line: usize,
 }
 
-impl Default for Token {
-    fn default() -> Self {
-        Self {
-            token_type: TokenType::EOF,
-            start: 0,
-            len: 0,
-            line: 1,
-        }
-    }
-}
-
 impl Token {
     pub fn new(tt: TokenType, start: usize, len: usize, line: usize) -> Self {
         Self {
@@ -30,11 +19,12 @@ impl Token {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
-    // Single character
+    // Pair
     LeftParen,
     RightParen,
     LeftBrace,
     RightBrace,
+    // Single character
     Comma,
     Dot,
     Minus,
@@ -50,16 +40,36 @@ pub enum TokenType {
     BangEqual,
     LessEqual,
     GreaterEqual,
-    //
+    // Literal
     String,
+    Identifier,
+    Number,
+    // Keywords
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
     // Others
+    Error,
     EOF,
 }
 
 /// The lifetime of `source` as same as the tokenizer.
 pub struct Tokenizer<'a> {
     /// The source code string.
-    source: &'a str,
+    source: &'a [u8],
     /// The array that stores each token in `source`.
     tokens: Vec<Token>,
     /// The start index of current token. (Index start from 1)
@@ -71,41 +81,134 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
+    /// Create a tokenizer in initial state.
     pub fn new(source: &'a str) -> Self {
         Self {
-            source,
+            source: source.as_bytes(),
+            tokens: vec![],
             start: 0,
             current: 0,
             line: 1,
-            tokens: vec![],
+        }
+    }
+
+    /// Scan each character and return a token.
+    pub fn scan_token(&mut self) -> Token {
+        self.start = self.current;
+        let c = self.advance();
+        if c.is_ascii_digit() {
+            return self.number();
+        } else if c.is_ascii_alphabetic() || c == '_' {
+            return self.identifier();
+        }
+        match c {
+            '(' => self.make_token(TokenType::LeftParen),
+            ')' => self.make_token(TokenType::RightParen),
+            '{' => self.make_token(TokenType::LeftBrace),
+            '}' => self.make_token(TokenType::RightBrace),
+            ',' => self.make_token(TokenType::Comma),
+            '.' => self.make_token(TokenType::Dot),
+            '-' => self.make_token(TokenType::Minus),
+            '+' => self.make_token(TokenType::Plus),
+            ';' => self.make_token(TokenType::Semicolon),
+            '*' => self.make_token(TokenType::Star),
+            '!' => {
+                let t = if self.next('=') {
+                    TokenType::BangEqual
+                } else {
+                    TokenType::Bang
+                };
+                self.make_token(t)
+            }
+            '<' => {
+                let t = if self.next('=') {
+                    TokenType::LessEqual
+                } else {
+                    TokenType::Less
+                };
+                self.make_token(t)
+            }
+            '>' => {
+                let t = if self.next('=') {
+                    TokenType::GreaterEqual
+                } else {
+                    TokenType::Greater
+                };
+                self.make_token(t)
+            }
+            '/' => self.make_token(TokenType::Slash),
+            '"' => self.string(),
+            _ => self.error_token(&format!("Unexpected token: {}", c)),
+        }
+    }
+
+    /// Call this function when scanning tokens, it will consume ignore character and
+    /// automatically increase `current`.
+    pub fn skip_ignore_character(&mut self) {
+        loop {
+            let c = self.peek(0);
+            match c {
+                ' ' | '\r' | '\t' => {
+                    self.advance();
+                }
+                '\n' => {
+                    self.line += 1;
+                    self.advance();
+                }
+                '/' => {
+                    if self.peek(1) == '/' {
+                        self.line_comment();
+                    } else {
+                        return;
+                    }
+                }
+                _ => return,
+            }
         }
     }
 
     /// Scan the source code and return list of tokens.
     pub fn scan_tokens(&mut self) -> Vec<Token> {
         while !self.is_at_end() {
-            self.start = self.current;
-            self.scan_token();
+            self.skip_ignore_character();
+            if self.is_at_end() {
+                break;
+            }
+            let token = self.scan_token();
+            self.tokens.push(token);
         }
-        self.tokens.push(Token::default());
+        self.tokens.push(self.make_token(TokenType::EOF));
         // Use `to_vec()` to make copy a new array and return.
         // Because `Vec` not support `Copy` trait.
         self.tokens.to_vec()
     }
 
-    /// Judge if we have scanned to the last character of the source code.
-    pub fn is_at_end(&self) -> bool {
-        return self.current >= self.source.len();
+    /// Return a `Token` struct according to token type.
+    /// The information of `Token` (start index, length, line number) will be automatically
+    /// supplied from tokenizer.
+    pub fn make_token(&self, tt: TokenType) -> Token {
+        Token::new(tt, self.start, self.current - self.start, self.line)
     }
 
-    /// Consume `current` and return the character at the index.
+    /// TODO: How to pass error message to token?
+    pub fn error_token(&self, _message: &str) -> Token {
+        Token::new(
+            TokenType::Error,
+            self.start,
+            self.current - self.start,
+            self.line,
+        )
+    }
+
+    /// Judge if we have scanned to the last character of the source code.
+    pub fn is_at_end(&self) -> bool {
+        self.current >= self.source.len()
+    }
+
+    /// `current` will be at the next index and return the character at the former index.
     pub fn advance(&mut self) -> char {
         self.current += 1;
-        return self
-            .source
-            .chars()
-            .nth(self.current - 1)
-            .expect("Index out of bound");
+        self.source[self.current - 1] as char
     }
 
     /// Add token to the token list.
@@ -119,10 +222,11 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Judge if the next token equals to variable `c`. If equals, `current` will increase.
-    pub fn next(&mut self, p: char) -> bool {
-        if let Some(c) = self.source.chars().nth(self.current)
-            && c == p
-        {
+    pub fn next(&mut self, c: char) -> bool {
+        if self.is_at_end() {
+            return false;
+        }
+        if self.source[self.current] as char == c {
             self.current += 1;
             return true;
         }
@@ -131,47 +235,23 @@ impl<'a> Tokenizer<'a> {
 
     /// Get the character behind `current` in `n` indexes. `current` will not increase.
     pub fn peek(&self, n: usize) -> char {
-        if let Some(c) = self.source.chars().nth(self.current + n) {
-            return c;
+        let idx = self.current + n;
+        if idx >= self.source.len() {
+            return '\0';
         }
-        '\0'
+        self.source[idx] as char
     }
 
     /// Skip a `//` line comment, consuming until end of line.
     fn line_comment(&mut self) {
-        while self.peek(0) != '\n' && !self.is_at_end() {
+        while !self.is_at_end() && self.peek(0) != '\n' {
             self.current += 1;
         }
     }
 
-    /// Skip a `/* */` block comment, consuming until `*/` is found.
-    fn block_comment(&mut self) {
-        while !self.is_at_end() {
-            if self.peek(0) == '*' && self.peek(1) == '/' {
-                self.current += 2;
-                return;
-            }
-            if self.peek(0) == '\n' {
-                self.line += 1;
-            }
-            self.current += 1;
-        }
-        println!("Unclosed block comment.");
-    }
-
-    /// Judge if the token is annotation keyword `//` or `/*..*/`.
-    pub fn comment(&mut self) {
-        if self.next('/') {
-            self.line_comment();
-        } else if self.next('*') {
-            self.block_comment();
-        } else {
-            self.add_token(TokenType::Slash);
-        }
-    }
-
-    /// Consume all the character between `"` pairs.
-    pub fn string(&mut self) {
+    /// Call this function when scanning meets `"`.
+    /// Keep scanning (including line feed) until meets the close character `"`.
+    pub fn string(&mut self) -> Token {
         while self.peek(0) != '"' && !self.is_at_end() {
             if self.peek(0) == '\n' {
                 self.line += 1
@@ -179,69 +259,69 @@ impl<'a> Tokenizer<'a> {
             self.current += 1;
         }
         if self.is_at_end() {
-            println!("Unclosed string.");
-            return;
+            return self.error_token("Unclosed string");
         }
         // Consume the closing `"`.
         self.advance();
-
-        // TODO: maybe we need add string slice value to the token list?
-        // let s = &self.source[self.start + 1..self.current - 1];
-        self.tokens.push(Token::new(
-            TokenType::String,
-            self.start + 1,
-            self.current - self.start,
-            self.line,
-        ));
+        self.make_token(TokenType::String)
     }
 
-    /// Scan each character and add token to the token list.
-    pub fn scan_token(&mut self) {
-        let c = self.advance();
-        match c {
-            '(' => self.add_token(TokenType::LeftParen),
-            ')' => self.add_token(TokenType::RightParen),
-            '{' => self.add_token(TokenType::LeftBrace),
-            '}' => self.add_token(TokenType::RightBrace),
-            ',' => self.add_token(TokenType::Comma),
-            '.' => self.add_token(TokenType::Dot),
-            '-' => self.add_token(TokenType::Minus),
-            '+' => self.add_token(TokenType::Plus),
-            ';' => self.add_token(TokenType::Semicolon),
-            '*' => self.add_token(TokenType::Star),
-            '!' => {
-                let t = if self.next('=') {
-                    TokenType::BangEqual
-                } else {
-                    TokenType::Bang
-                };
-                self.add_token(t);
+    /// Call this function when scanning meets digit.
+    /// Keep scanning until meets non-digital character.
+    /// While scanning, it only allow `.` to appear once.
+    pub fn number(&mut self) -> Token {
+        while self.peek(0).is_ascii_digit() {
+            self.advance();
+        }
+        if self.peek(0) == '.' && self.peek(1).is_ascii_digit() {
+            // Consume dot
+            self.advance();
+            // Then, consume the rest of digit
+            while self.peek(0).is_ascii_digit() {
+                self.advance();
             }
-            '<' => {
-                let t = if self.next('=') {
-                    TokenType::LessEqual
-                } else {
-                    TokenType::Less
-                };
-                self.add_token(t);
-            }
-            '>' => {
-                let t = if self.next('=') {
-                    TokenType::GreaterEqual
-                } else {
-                    TokenType::Greater
-                };
-                self.add_token(t);
-            }
-            '/' => self.comment(),
-            '"' => self.string(),
-            ' ' | '\r' | '\t' => {
-                // Ignore
-            }
-            '\n' => self.line += 1,
-            _ => {
-                println!("Unexpected token: {}", c);
-            }
+        }
+        self.make_token(TokenType::Number)
+    }
+
+    /// Call this function when scanning meets alpha.
+    /// Judging weather the identifier is keyword.
+    pub fn identifier(&mut self) -> Token {
+        match self.source[self.start] as char {
+            'a' => self.check_keyword(1, 2, "nd", TokenType::And),
+            'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
+            'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
+            'f' => match self.source[self.start + 1] as char {
+                'a' => self.check_keyword(2, 3, "lse", TokenType::False),
+                'o' => self.check_keyword(2, 1, "r", TokenType::For),
+                'u' => self.check_keyword(2, 1, "n", TokenType::Fun),
+                _ => self.make_token(TokenType::Identifier),
+            },
+            'i' => self.check_keyword(1, 1, "f", TokenType::If),
+            'n' => self.check_keyword(1, 2, "il", TokenType::Nil),
+            'o' => self.check_keyword(1, 1, "r", TokenType::Or),
+            'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
+            'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
+            's' => self.check_keyword(1, 4, "uper", TokenType::Super),
+            't' => match self.source[self.start + 1] as char {
+                'h' => self.check_keyword(2, 2, "is", TokenType::This),
+                'r' => self.check_keyword(2, 2, "ue", TokenType::True),
+                _ => self.make_token(TokenType::Identifier),
+            },
+            'v' => self.check_keyword(1, 2, "ar", TokenType::Var),
+            'w' => self.check_keyword(1, 4, "hile", TokenType::While),
+            _ => self.make_token(TokenType::Identifier),
+        }
+    }
+
+    /// Check if the scanning token is keyword, else if return normal identifier token type.
+    pub fn check_keyword(&self, start: usize, end: usize, pattern: &str, tt: TokenType) -> Token {
+        if self.current - self.start == start + end
+            && &self.source[self.start + start..self.start + start + end] == pattern.as_bytes()
+        {
+            self.make_token(tt)
+        } else {
+            self.make_token(TokenType::Identifier)
         }
     }
 }

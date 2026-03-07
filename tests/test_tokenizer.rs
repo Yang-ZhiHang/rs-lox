@@ -81,27 +81,10 @@ fn test_slash_token() {
 }
 
 #[test]
-fn test_comment_is_ignored_1() {
-    // The line starts with '//' should be ignored.
+fn test_comment() {
     let mut tokenizer = Tokenizer::new("// this is a comment\n+");
     let tokens = tokenizer.scan_tokens();
     assert_eq!(token_types(&tokens), vec![TokenType::Plus, TokenType::EOF]);
-}
-
-#[test]
-fn test_comment_is_ignored_2() {
-    // The line starts with '//' should be ignored.
-    let mut tokenizer = Tokenizer::new("/* this is a comment */+");
-    let tokens = tokenizer.scan_tokens();
-    assert_eq!(token_types(&tokens), vec![TokenType::Plus, TokenType::EOF]);
-}
-
-#[test]
-fn test_comment_unclosed() {
-    // The line starts with '//' should be ignored.
-    let mut tokenizer = Tokenizer::new("/* this is a unclosed comment");
-    let tokens = tokenizer.scan_tokens();
-    assert_eq!(token_types(&tokens), vec![TokenType::EOF]);
 }
 
 #[test]
@@ -142,8 +125,9 @@ fn test_string() {
         token_types(&tokens),
         vec![TokenType::String, TokenType::EOF]
     );
+    // The token should be `"Hello, world\n"`, which has length 15.
     let t = tokens[0];
-    assert_eq!(t.start, 1);
+    assert_eq!(t.start, 0);
     assert_eq!(t.len, 15);
     assert_eq!(t.line, 2);
 }

@@ -4,6 +4,12 @@ pub struct Constant {
     values: Vec<Value>,
 }
 
+impl Default for Constant {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Constant {
     /// Create constant area with empty vector.
     pub fn new() -> Self {

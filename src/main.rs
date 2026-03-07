@@ -6,17 +6,12 @@ pub mod common;
 pub mod constant;
 pub mod file;
 pub mod macros;
+pub mod parser;
 pub mod tokenizer;
 pub mod vm;
 
 use crate::{file::read_file, tokenizer::Tokenizer, vm::VM};
 
-/// Compile source code into byte code.
-pub fn compile(source: &str) -> &[u8] {
-    let mut tokenizer = Tokenizer::new(source);
-    let tokens = tokenizer.scan_tokens();
-    todo!()
-}
 
 pub fn run_file(vm: &VM, path: &str) {
     // Read source code

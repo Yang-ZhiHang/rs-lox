@@ -62,7 +62,7 @@ pub enum TokenType {
     Var,
     While,
     // Others
-    Error,
+    Error(String),
     EOF,
 }
 
@@ -191,9 +191,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// TODO: How to pass error message to token?
-    pub fn error_token(&self, _message: &str) -> Token {
+    pub fn error_token(&self, message: &str) -> Token {
         Token::new(
-            TokenType::Error,
+            TokenType::Error(String::from(message)),
             self.start,
             self.current - self.start,
             self.line,

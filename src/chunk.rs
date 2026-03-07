@@ -1,6 +1,7 @@
 use crate::constant::{Constant, Value};
 
-// Use strum to automatically distribute number for enum member.
+// Use strum to automatically distribute number for enum member. It's useful when we
+// read bytes data and detect it is opcode or index.
 #[derive(Clone, Copy, Debug, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {

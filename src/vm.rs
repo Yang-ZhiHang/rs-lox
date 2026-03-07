@@ -45,14 +45,14 @@ impl VM {
     }
 
     /// Interpret the given byte chunk.
-    pub fn interpret(&mut self, chunk: &Chunk) {
-        self.run(chunk);
+    pub fn interpret(&mut self, chunk: &Chunk) -> InterpretResult {
+        self.run(chunk)
     }
 
     /// Run the opcode from the byte chunk.
     /// `chunk` is passed in as a parameter instead of stored in self,
     /// so that self is free to be mutably borrowed for push/pop inside the loop.
-    pub fn run(&mut self, chunk: &Chunk) {
+    pub fn run(&mut self, chunk: &Chunk) -> InterpretResult {
         while self.pc < chunk.code().len() {
             let opcode = Self::read_byte(chunk, &mut self.pc);
             match OpCode::from_repr(opcode) {
@@ -77,9 +77,11 @@ impl VM {
                 },
                 None => {
                     println!("Unknown opcode: {}", opcode);
+                    return InterpretResult::InterpretCompileError;
                 }
             }
         }
+        InterpretResult::InterpretOk
     }
 
     /// Read a byte data from given chunk and increase pc.

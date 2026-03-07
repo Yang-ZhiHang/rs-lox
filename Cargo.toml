@@ -5,3 +5,9 @@ edition = "2024"
 
 [dependencies]
 strum = { version = "0.26", features = ["derive"] }
+
+[lints.clippy]
+all = "warn"
+perf = "warn"
+style = "warn"
+complexity = "warn"

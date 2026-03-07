@@ -41,9 +41,8 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
     let byte = chunk.code()[offset];
     match OpCode::from_repr(byte) {
         Some(opcode) => match opcode {
-            OpCode::OpReturn => simple_instruction(chunk, offset, opcode),
-            OpCode::OpConstant => constant_instruction(chunk, offset, opcode),
-            OpCode::OpNegate => simple_instruction(chunk, offset, opcode),
+            OpCode::Constant => constant_instruction(chunk, offset, opcode),
+            _ => simple_instruction(chunk, offset, opcode),
         },
         None => {
             println!("Unknown opcode: {}", byte);

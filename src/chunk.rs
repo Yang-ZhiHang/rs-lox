@@ -4,11 +4,16 @@ use crate::constant::{Constant, Value};
 #[derive(Clone, Copy, Debug, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
-    OpReturn,
+    Return,
     /// There is still one byte of space after `OpConstant` for storing the constant index.
-    OpConstant,
+    Constant,
     /// Unary
-    OpNegate,
+    UnaryNegate,
+    /// Binary
+    BinaryAdd,
+    BinarySubtract,
+    BinaryMultiple,
+    BinaryDivide,
 }
 
 /// A trait for types that can be written into the chunk as a single byte.

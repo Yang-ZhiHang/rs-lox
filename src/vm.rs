@@ -1,9 +1,17 @@
+/// vm.rs: We call this LVM (Lox Virtual Machine).
 use crate::{
+    binary_op,
     chunk::{Chunk, OpCode},
     constant::Value,
 };
 
 const STACK_SIZE: usize = 256;
+
+pub enum InterpretResult {
+    InterpretOk,
+    InterpretCompileError,
+    InterpretRuntimeError,
+}
 
 pub struct VM {
     /// We don't use chunk as member of vm in rust to avoid series of problems cause
@@ -13,6 +21,7 @@ pub struct VM {
     /// TODO: Is pointer better than counter in rust?
     pc: usize,
     /// The stack to stored temporary value in expression.
+    /// TODO: wheater to make it dynamic vector or just static?
     stack: Vec<Value>,
     /// The top index of stack.
     stack_top: usize,
@@ -42,18 +51,23 @@ impl VM {
             let opcode = Self::read_byte(chunk, &mut self.pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
-                    OpCode::OpConstant => {
+                    OpCode::Constant => {
                         let value = Self::read_constant(chunk, &mut self.pc);
                         self.push(value);
                     }
-                    OpCode::OpReturn => {
+                    OpCode::Return => {
                         let value = self.pop();
                         println!("{}", value);
                     }
-                    OpCode::OpNegate => {
-                        let operand = self.pop();
-                        self.push(-operand);
+                    OpCode::UnaryNegate => {
+                        if let Some(top) = self.stack.get_mut(self.stack_top) {
+                            *top = -*top;
+                        }
                     }
+                    OpCode::BinaryAdd => binary_op!(self, +),
+                    OpCode::BinarySubtract => binary_op!(self, -),
+                    OpCode::BinaryMultiple => binary_op!(self, *),
+                    OpCode::BinaryDivide => binary_op!(self, /),
                 },
                 None => {
                     println!("Unknown opcode: {}", opcode);
@@ -89,5 +103,13 @@ impl VM {
     pub fn pop(&mut self) -> Value {
         self.stack_top -= 1;
         self.stack[self.stack_top]
+    }
+
+    /// Return a mutable reference to the current top value of the stack.
+    /// Used by binary_op! to mutate the top value in-place without an extra modify on
+    /// `stack_top`.
+    /// TODO: Error handling (if stack_top is 0).
+    pub fn stack_top_mut(&mut self) -> &mut Value {
+        &mut self.stack[self.stack_top - 1]
     }
 }

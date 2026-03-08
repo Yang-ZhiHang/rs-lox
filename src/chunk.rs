@@ -18,6 +18,8 @@ pub enum OpCode {
 }
 
 /// A trait for types that can be written into the chunk as a single byte.
+/// We can't use `Into<u8>` directly because the orphan rule forbids implementing
+/// `From<usize> for u8` (both types are from std).
 pub trait IntoU8 {
     fn into_u8(self) -> u8;
 }

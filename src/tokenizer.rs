@@ -3,11 +3,22 @@ pub struct Token {
     pub token_type: TokenType,
     pub start: usize,
     pub len: usize,
-    pub line: usize,
+    pub line: u32,
+}
+
+impl Default for Token {
+    fn default() -> Self {
+        Self {
+            token_type: TokenType::EOF,
+            start: 0,
+            len: 0,
+            line: 1,
+        }
+    }
 }
 
 impl Token {
-    pub fn new(tt: TokenType, start: usize, len: usize, line: usize) -> Self {
+    pub fn new(tt: TokenType, start: usize, len: usize, line: u32) -> Self {
         Self {
             token_type: tt,
             start,
@@ -62,7 +73,7 @@ pub enum TokenType {
     Var,
     While,
     // Others
-    Error(String),
+    Error(&'static str),
     EOF,
 }
 
@@ -77,7 +88,7 @@ pub struct Tokenizer<'a> {
     /// The index of cuurent character of current token.
     current: usize,
     /// The current line of source code file.
-    line: usize,
+    line: u32,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -90,6 +101,11 @@ impl<'a> Tokenizer<'a> {
             current: 0,
             line: 1,
         }
+    }
+
+    /// Getter of member `source`.
+    pub fn source(&self) -> &'a [u8] {
+        self.source
     }
 
     /// Scan each character and return a token.
@@ -138,7 +154,7 @@ impl<'a> Tokenizer<'a> {
             }
             '/' => self.make_token(TokenType::Slash),
             '"' => self.string(),
-            _ => self.error_token(&format!("Unexpected token: {}", c)),
+            _ => self.error_token("Unexpected character"),
         }
     }
 
@@ -189,11 +205,14 @@ impl<'a> Tokenizer<'a> {
     pub fn make_token(&self, tt: TokenType) -> Token {
         Token::new(tt, self.start, self.current - self.start, self.line)
     }
-
-    /// TODO: How to pass error message to token?
-    pub fn error_token(&self, message: &str) -> Token {
+    
+    /// Generate a error token with error message. 
+    /// The error token is used to report error in scanning. Error message was passed 
+    /// to `TokenType::Error`. The way to get the error message is to match the token 
+    /// type.
+    pub fn error_token(&self, message: &'static str) -> Token {
         Token::new(
-            TokenType::Error(String::from(message)),
+            TokenType::Error(message),
             self.start,
             self.current - self.start,
             self.line,

@@ -10,13 +10,15 @@ pub mod parser;
 pub mod tokenizer;
 pub mod vm;
 
-use crate::{file::read_file, tokenizer::Tokenizer, vm::VM};
+use crate::{file::read_file, parser::Parser, tokenizer::Tokenizer, vm::VM};
 
 
 pub fn run_file(vm: &VM, path: &str) {
     // Read source code
     let source = read_file(path);
-    let byte_code = compile(&source);
+    let tokenizer = Tokenizer::new(&source);
+    let mut parser = Parser::new(tokenizer);
+    let byte_code = parser.compile(&source);
 }
 
 /// Read-Eval-Print-Loop.

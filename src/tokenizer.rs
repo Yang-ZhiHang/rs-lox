@@ -111,6 +111,10 @@ impl<'a> Tokenizer<'a> {
     /// Scan each character and return a token.
     pub fn scan_token(&mut self) -> Token {
         self.start = self.current;
+        // Return end of file token type if reach the end.
+        if self.is_at_end() {
+            return self.make_token(TokenType::EOF);
+        }
         let c = self.advance();
         if c.is_ascii_digit() {
             return self.number();
@@ -205,10 +209,10 @@ impl<'a> Tokenizer<'a> {
     pub fn make_token(&self, tt: TokenType) -> Token {
         Token::new(tt, self.start, self.current - self.start, self.line)
     }
-    
-    /// Generate a error token with error message. 
-    /// The error token is used to report error in scanning. Error message was passed 
-    /// to `TokenType::Error`. The way to get the error message is to match the token 
+
+    /// Generate a error token with error message.
+    /// The error token is used to report error in scanning. Error message was passed
+    /// to `TokenType::Error`. The way to get the error message is to match the token
     /// type.
     pub fn error_token(&self, message: &'static str) -> Token {
         Token::new(
@@ -334,10 +338,10 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Check if the scanning token is keyword, else if return normal identifier token type.
-    pub fn check_keyword(&self, start: usize, end: usize, pattern: &str, tt: TokenType) -> Token {
-        if self.current - self.start == start + end
-            && &self.source[self.start + start..self.start + start + end] == pattern.as_bytes()
+    pub fn check_keyword(&mut self, start: usize, len: usize, pattern: &str, tt: TokenType) -> Token {
+        if &self.source[self.start + start..self.start + start + len] == pattern.as_bytes()
         {
+            self.current += len;
             self.make_token(tt)
         } else {
             self.make_token(TokenType::Identifier)

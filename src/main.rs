@@ -12,18 +12,20 @@ pub mod vm;
 
 use crate::{file::read_file, parser::Parser, tokenizer::Tokenizer, vm::VM};
 
-
-pub fn run_file(vm: &VM, path: &str) {
+pub fn run_file(vm: &mut VM, path: &str) {
     // Read source code
     let source = read_file(path);
     let tokenizer = Tokenizer::new(&source);
     let mut parser = Parser::new(tokenizer);
-    let byte_code = parser.compile(&source);
+    if parser.compile() {
+        let chunk = parser.chunk;
+        vm.interpret(&chunk);
+    }
 }
 
 /// Read-Eval-Print-Loop.
 /// A type of console interaction.
-pub fn repl(vm: &VM) {
+pub fn repl(_vm: &mut VM) {
     let mut line = String::new();
     loop {
         print!(">>> ");
@@ -40,8 +42,8 @@ fn main() {
     let mut vm = VM::new();
     let args: Vec<String> = env::args().collect();
     match args.len() {
-        1 => run_file(&mut vm, &args[1]),
-        2 => repl(&mut vm),
+        1 => repl(&mut vm),
+        2 => run_file(&mut vm, &args[1]),
         _ => println!("Usage: lox [PATH]\n"),
     }
 }

@@ -1,12 +1,121 @@
 use crate::{
     chunk::{Chunk, IntoU8, OpCode},
+    common::disassemble,
+    constant::Value,
     tokenizer::{Token, TokenType, Tokenizer},
 };
+
+/// Function pointer type for prefix/infix parse functions.
+type ParseFn<'a> = fn(&mut Parser<'a>);
+
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub enum Precedence {
+    None,
+    Assignment, // =
+    Or,         // or
+    And,        // and
+    Equality,   // == !=
+    Comparison, // < > <= >=
+    Term,       // + -
+    Factor,     // * /
+    Unary,      // ! -
+    Call,       // . ()
+    Primary,
+}
+
+impl Precedence {
+    /// Returns the next higher precedence level.
+    /// Used in infix parsing to enforce left-associativity.
+    pub fn next(self) -> Self {
+        match self {
+            Self::None => Self::Assignment,
+            Self::Assignment => Self::Or,
+            Self::Or => Self::And,
+            Self::And => Self::Equality,
+            Self::Equality => Self::Comparison,
+            Self::Comparison => Self::Term,
+            Self::Term => Self::Factor,
+            Self::Factor => Self::Unary,
+            Self::Unary => Self::Call,
+            Self::Call => Self::Primary,
+            // Primary is already the highest, return self to avoid going out of bounds.
+            Self::Primary => Self::Primary,
+        }
+    }
+}
+
+pub struct ParseRule<'a> {
+    pub prefix: Option<ParseFn<'a>>,
+    pub infix: Option<ParseFn<'a>>,
+    pub precedence: Precedence,
+}
+
+impl<'a> ParseRule<'a> {
+    fn new(
+        prefix: Option<ParseFn<'a>>,
+        infix: Option<ParseFn<'a>>,
+        precedence: Precedence,
+    ) -> Self {
+        Self {
+            prefix,
+            infix,
+            precedence,
+        }
+    }
+}
+
+/// Returns the parse rule for the given token type.
+/// Using a `match` instead of a static array avoids lifetime and fn-pointer coercion
+/// issues that arise from `Parser<'a>` carrying a lifetime parameter.
+#[rustfmt::skip]
+pub fn get_rule<'a>(tt: TokenType) -> ParseRule<'a> {
+    match tt {
+        TokenType::LeftParen    => ParseRule::new(Some(Parser::grouping), None,                 Precedence::None),
+        TokenType::RightParen   => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::LeftBrace    => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::RightBrace   => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Comma        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Dot          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Minus        => ParseRule::new(Some(Parser::unary),    Some(Parser::binary), Precedence::Term),
+        TokenType::Plus         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Term),
+        TokenType::Semicolon    => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Star         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
+        TokenType::Bang         => ParseRule::new(Some(Parser::unary),    None,                 Precedence::None),
+        TokenType::Equal        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Less         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::Greater      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::Slash        => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
+        TokenType::BangEqual    => ParseRule::new(None,                   Some(Parser::binary), Precedence::Equality),
+        TokenType::LessEqual    => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::GreaterEqual => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::String       => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Identifier   => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
+        TokenType::And          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Class        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Else         => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::False        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::For          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Fun          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::If           => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Nil          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Or           => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Print        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Return       => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Super        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::This         => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::True         => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Var          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::While        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Error(_)     => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::EOF          => ParseRule::new(None,                   None,                 Precedence::None),
+    }
+}
 
 pub struct Parser<'a> {
     tokenizer: Tokenizer<'a>,
     /// The container to store byte code when compiling.
-    chunk: Chunk,
+    pub chunk: Chunk,
     /// Why we need a prev and cur token? Why only two tokens?
     prev: Token,
     cur: Token,
@@ -27,10 +136,11 @@ impl<'a> Parser<'a> {
     }
 
     /// Compile source code into byte code.
-    pub fn compile(&mut self, source: &str) -> bool {
+    pub fn compile(&mut self) -> bool {
         self.advance();
-        // self.expression();
+        self.expression();
         self.consume(TokenType::EOF, "Expected end of expression.");
+        self.end_compile();
         !self.had_error
     }
 
@@ -40,6 +150,7 @@ impl<'a> Parser<'a> {
     pub fn advance(&mut self) {
         self.prev = self.cur;
         loop {
+            self.tokenizer.skip_ignore_character();
             self.cur = self.tokenizer.scan_token();
             if let TokenType::Error(msg) = self.cur.token_type {
                 self.error_at_current(msg);
@@ -85,7 +196,7 @@ impl<'a> Parser<'a> {
             };
             print!(" at '{}'", token);
         }
-        print!(": {}", msg);
+        println!(": {}", msg);
         self.had_error = true;
     }
 
@@ -93,16 +204,105 @@ impl<'a> Parser<'a> {
         self.chunk.write(byte, self.prev.line);
     }
 
+    /// Write operation code and constant value index (which from constant area) to the chunk.
+    pub fn emit_constant(&mut self, constant: Value) {
+        let idx = self.chunk.write_constant(constant);
+        self.emit_bytes(OpCode::Constant, idx);
+    }
+
+    /// Write two bytes to the chunk.
     pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8) {
         self.emit_byte(byte1);
         self.emit_byte(byte2);
     }
 
+    /// Write return operation code to chunk.
     pub fn emit_return(&mut self) {
         self.emit_byte(OpCode::Return);
     }
 
+    /// Write return operation code to chunk.
     pub fn end_compile(&mut self) {
         self.emit_return();
+        if !self.had_error {
+            disassemble(&self.chunk, "code");
+        }
+    }
+
+    pub fn number(&mut self) {
+        let source = self.tokenizer.source();
+        let slice = &source[self.prev.start..self.prev.start + self.prev.len];
+        let value: Value = std::str::from_utf8(slice)
+            .expect("Number token should be valid UTF-8.")
+            .parse()
+            .expect("Number token should be a valid float.");
+        self.emit_constant(value);
+    }
+
+    pub fn grouping(&mut self) {
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' after expression.");
+    }
+
+    pub fn unary(&mut self) {
+        let tt = self.prev.token_type;
+        // Save the operator's line before expression() advances `prev`
+        // to the operand, which would cause emit_byte to record the wrong
+        // line number for the unary opcode.
+        let line = self.prev.line;
+        // Compile the operand.
+        self.parse_precedence(Precedence::Unary);
+        #[allow(clippy::single_match)]
+        // Emit the operator instruction.
+        // We will add more match case in the future.
+        match tt {
+            TokenType::Minus => {
+                self.chunk.write(OpCode::UnaryNegate, line);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn binary(&mut self) {
+        let tt = self.prev.token_type;
+        // Save the operator's line before parse_precedence advances `prev`
+        // to the right-hand operand, which would cause emit_byte to record
+        // the wrong line number for the binary opcode.
+        let line = self.prev.line;
+        let rule = get_rule(tt);
+        self.parse_precedence(rule.precedence.next());
+        #[rustfmt::skip]
+        let op = match tt {
+            TokenType::Plus  => Some(OpCode::BinaryAdd),
+            TokenType::Minus => Some(OpCode::BinarySubtract),
+            TokenType::Star  => Some(OpCode::BinaryMultiple),
+            TokenType::Slash => Some(OpCode::BinaryDivide),
+            _ => None,
+        };
+        if let Some(op) = op {
+            self.chunk.write(op, line);
+        }
+    }
+
+    /// Parse the precedence of previous token.
+    pub fn parse_precedence(&mut self, precedence: Precedence) {
+        self.advance();
+        if let Some(prefix_rule) = get_rule(self.prev.token_type).prefix {
+            prefix_rule(self);
+            while precedence <= get_rule(self.cur.token_type).precedence {
+                self.advance();
+                if let Some(infix_rule) = get_rule(self.prev.token_type).infix {
+                    infix_rule(self);
+                }
+            }
+        } else {
+            println!("Expected expression.");
+        }
+    }
+
+    /// Compile the previous token.
+    pub fn expression(&mut self) {
+        // Temporarily use assginment percedence to parse the whole expression.
+        self.parse_precedence(Precedence::Assignment);
     }
 }

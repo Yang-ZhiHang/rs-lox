@@ -1,0 +1,33 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "adapter": "CodeLLDB",
+    "label": "cargo run examples/test.lox",
+    "type": "lldb",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/target/debug/lox.exe",
+    "args": ["$ZED_WORKTREE_ROOT/examples/test.lox"],
+    "build": {
+      "label": "cargo run -p lox",
+      "command": "cargo",
+      "args": ["build", "--package", "lox"],
+      "env": {
+        "RUSTC_TOOLCHAIN": "C:\\Users\\YZH\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc",
+      },
+      "cwd": "D:\\code\\dev\\lox",
+      "use_new_terminal": false,
+      "allow_concurrent_runs": false,
+      "reveal": "always",
+      "reveal_target": "dock",
+      "hide": "never",
+      "tags": [],
+      "shell": "system",
+      "show_summary": false,
+      "show_command": false,
+    },
+    "sourceLanguages": ["rust"],
+  },
+]

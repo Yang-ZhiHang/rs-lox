@@ -23,7 +23,7 @@ pub struct VM {
     /// The stack to stored temporary value in expression.
     /// TODO: wheater to make it dynamic vector or just static?
     stack: Vec<Value>,
-    /// The top index of stack.
+    /// The index of next element.
     stack_top: usize,
 }
 
@@ -66,7 +66,9 @@ impl VM {
                         println!("{}", value);
                     }
                     OpCode::UnaryNegate => {
-                        if let Some(top) = self.stack.get_mut(self.stack_top) {
+                        // The element stack top pointed to is the next element.
+                        // So we need to subtract 1.
+                        if let Some(top) = self.stack.get_mut(self.stack_top - 1) {
                             *top = -*top;
                         }
                     }

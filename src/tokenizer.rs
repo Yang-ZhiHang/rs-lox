@@ -80,12 +80,13 @@ pub enum TokenType {
 /// The lifetime of `source` as same as the tokenizer.
 pub struct Tokenizer<'a> {
     /// The source code string.
-    source: &'a [u8],
+    src: &'a [u8],
     /// The array that stores each token in `source`.
+    /// TODO: unused tokens and scan_tokens.
     tokens: Vec<Token>,
     /// The start index of current token. (Index start from 1)
     start: usize,
-    /// The index of cuurent character of current token.
+    /// The index of ready character.
     current: usize,
     /// The current line of source code file.
     line: u32,
@@ -95,7 +96,7 @@ impl<'a> Tokenizer<'a> {
     /// Create a tokenizer in initial state.
     pub fn new(source: &'a str) -> Self {
         Self {
-            source: source.as_bytes(),
+            src: source.as_bytes(),
             tokens: vec![],
             start: 0,
             current: 0,
@@ -105,7 +106,7 @@ impl<'a> Tokenizer<'a> {
 
     /// Getter of member `source`.
     pub fn source(&self) -> &'a [u8] {
-        self.source
+        self.src
     }
 
     /// Scan each character and return a token.
@@ -225,13 +226,13 @@ impl<'a> Tokenizer<'a> {
 
     /// Judge if we have scanned to the last character of the source code.
     pub fn is_at_end(&self) -> bool {
-        self.current >= self.source.len()
+        self.current >= self.src.len()
     }
 
     /// `current` will be at the next index and return the character at the former index.
     pub fn advance(&mut self) -> char {
         self.current += 1;
-        self.source[self.current - 1] as char
+        self.src[self.current - 1] as char
     }
 
     /// Add token to the token list.
@@ -249,7 +250,7 @@ impl<'a> Tokenizer<'a> {
         if self.is_at_end() {
             return false;
         }
-        if self.source[self.current] as char == c {
+        if self.src[self.current] as char == c {
             self.current += 1;
             return true;
         }
@@ -259,10 +260,10 @@ impl<'a> Tokenizer<'a> {
     /// Get the character behind `current` in `n` indexes. `current` will not increase.
     pub fn peek(&self, n: usize) -> char {
         let idx = self.current + n;
-        if idx >= self.source.len() {
+        if idx >= self.src.len() {
             return '\0';
         }
-        self.source[idx] as char
+        self.src[idx] as char
     }
 
     /// Skip a `//` line comment, consuming until end of line.
@@ -310,11 +311,11 @@ impl<'a> Tokenizer<'a> {
     /// Call this function when scanning meets alpha.
     /// Judging weather the identifier is keyword.
     pub fn identifier(&mut self) -> Token {
-        match self.source[self.start] as char {
+        match self.src[self.start] as char {
             'a' => self.check_keyword(1, 2, "nd", TokenType::And),
             'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
             'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
-            'f' => match self.source[self.start + 1] as char {
+            'f' => match self.src[self.start + 1] as char {
                 'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                 'o' => self.check_keyword(2, 1, "r", TokenType::For),
                 'u' => self.check_keyword(2, 1, "n", TokenType::Fun),
@@ -326,7 +327,7 @@ impl<'a> Tokenizer<'a> {
             'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
             'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
             's' => self.check_keyword(1, 4, "uper", TokenType::Super),
-            't' => match self.source[self.start + 1] as char {
+            't' => match self.src[self.start + 1] as char {
                 'h' => self.check_keyword(2, 2, "is", TokenType::This),
                 'r' => self.check_keyword(2, 2, "ue", TokenType::True),
                 _ => self.make_token(TokenType::Identifier),
@@ -339,9 +340,9 @@ impl<'a> Tokenizer<'a> {
 
     /// Check if the scanning token is keyword, else if return normal identifier token type.
     pub fn check_keyword(&mut self, start: usize, len: usize, pattern: &str, tt: TokenType) -> Token {
-        if &self.source[self.start + start..self.start + start + len] == pattern.as_bytes()
+        if &self.src[self.start + start..self.start + start + len] == pattern.as_bytes()
         {
-            self.current += len;
+            self.current += len + 1;
             self.make_token(tt)
         } else {
             self.make_token(TokenType::Identifier)

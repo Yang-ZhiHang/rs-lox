@@ -2,5 +2,4 @@
 pub mod chunk;
 #[cfg(debug_assertions)]
 pub mod common;
-pub mod constant;
 pub mod tokenizer;

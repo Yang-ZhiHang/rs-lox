@@ -23,7 +23,8 @@
       "reveal": "always",
       "reveal_target": "dock",
       "hide": "never",
-      "tags": [],
+      // Ignore warning of 'tags'
+      // "tags": [],
       "shell": "system",
       "show_summary": false,
       "show_command": false,

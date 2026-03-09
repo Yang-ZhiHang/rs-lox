@@ -7,8 +7,15 @@ macro_rules! binary_op {
         // This avoids a redundant pop+push pair compared to the naive approach.
         let b = $vm.pop();
         let a = $vm.stack_top_mut();
-        // allow op pattern to avoid clippy warning
-        #[allow(clippy::assign_op_pattern)]
-        { *a = *a $op b; }
+        match (a.as_number_mut(), b.as_number()) {
+            (Some(a), b) => {
+                #[allow(clippy::assign_op_pattern)]
+                { *a = *a $op b; }
+            }
+            _ => {
+                eprintln!("Operands must be numbers.");
+                return InterpretResult::RuntimeError;
+            }
+        }
     }};
 }

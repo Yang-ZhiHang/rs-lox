@@ -1,7 +1,6 @@
 use crate::{
-    chunk::{Chunk, IntoU8, OpCode},
+    chunk::{Chunk, IntoU8, OpCode, Value},
     common::disassemble,
-    constant::Value,
     tokenizer::{Token, TokenType, Tokenizer},
 };
 
@@ -24,20 +23,21 @@ pub enum Precedence {
 }
 
 impl Precedence {
+    #[rustfmt::skip]
     /// Returns the next higher precedence level.
     /// Used in infix parsing to enforce left-associativity.
     pub fn next(self) -> Self {
         match self {
-            Self::None => Self::Assignment,
+            Self::None       => Self::Assignment,
             Self::Assignment => Self::Or,
-            Self::Or => Self::And,
-            Self::And => Self::Equality,
-            Self::Equality => Self::Comparison,
+            Self::Or         => Self::And,
+            Self::And        => Self::Equality,
+            Self::Equality   => Self::Comparison,
             Self::Comparison => Self::Term,
-            Self::Term => Self::Factor,
-            Self::Factor => Self::Unary,
-            Self::Unary => Self::Call,
-            Self::Call => Self::Primary,
+            Self::Term       => Self::Factor,
+            Self::Factor     => Self::Unary,
+            Self::Unary      => Self::Call,
+            Self::Call       => Self::Primary,
             // Primary is already the highest, return self to avoid going out of bounds.
             Self::Primary => Self::Primary,
         }
@@ -94,17 +94,17 @@ pub fn get_rule<'a>(tt: TokenType) -> ParseRule<'a> {
         TokenType::And          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Class        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Else         => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::False        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::For          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Fun          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::If           => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Nil          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Or           => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Print        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Return       => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Super        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::This         => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::True         => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::True         => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
+        TokenType::False        => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
+        TokenType::Nil          => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
         TokenType::Var          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::While        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Error(_)     => ParseRule::new(None,                   None,                 Precedence::None),
@@ -189,11 +189,9 @@ impl<'a> Parser<'a> {
         } else if let TokenType::Error(_) = token.token_type {
             // The error message of `TokenType::Error` is passed-in parameter `msg`.
         } else {
-            let token = unsafe {
-                str::from_utf8_unchecked(
-                    &self.tokenizer.source()[token.start..token.start + token.len],
-                )
-            };
+            let token =
+                str::from_utf8(&self.tokenizer.source()[token.start..token.start + token.len])
+                    .unwrap();
             print!(" at '{}'", token);
         }
         println!(": {}", msg);
@@ -232,16 +230,28 @@ impl<'a> Parser<'a> {
     pub fn number(&mut self) {
         let source = self.tokenizer.source();
         let slice = &source[self.prev.start..self.prev.start + self.prev.len];
-        let value: Value = std::str::from_utf8(slice)
+        let val: f64 = std::str::from_utf8(slice)
             .expect("Number token should be valid UTF-8.")
             .parse()
             .expect("Number token should be a valid float.");
-        self.emit_constant(value);
+        self.emit_constant(Value::Number(val));
     }
 
     pub fn grouping(&mut self) {
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' after expression.");
+    }
+
+    /// The literal handling unit of Pratt parser.
+    pub fn literal(&mut self) {
+        match self.prev.token_type {
+            TokenType::True => self.emit_byte(OpCode::True),
+            TokenType::False => self.emit_byte(OpCode::False),
+            TokenType::Nil => self.emit_byte(OpCode::Nil),
+            _ => {
+                // Unreachable
+            }
+        }
     }
 
     pub fn unary(&mut self) {
@@ -275,7 +285,7 @@ impl<'a> Parser<'a> {
         let op = match tt {
             TokenType::Plus  => Some(OpCode::BinaryAdd),
             TokenType::Minus => Some(OpCode::BinarySubtract),
-            TokenType::Star  => Some(OpCode::BinaryMultiple),
+            TokenType::Star  => Some(OpCode::BinaryMultiply),
             TokenType::Slash => Some(OpCode::BinaryDivide),
             _ => None,
         };

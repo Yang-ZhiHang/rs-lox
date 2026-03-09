@@ -1,4 +1,4 @@
-use lox::chunk::{Chunk, OpCode};
+use lox::chunk::{Chunk, OpCode, Value};
 
 // ==================== write & code ====================
 
@@ -95,9 +95,9 @@ mod constants {
     #[test]
     fn test_write_constant_returns_correct_index() {
         let mut chunk = Chunk::new();
-        let i0 = chunk.write_constant(1.0);
-        let i1 = chunk.write_constant(2.0);
-        let i2 = chunk.write_constant(3.0);
+        let i0 = chunk.write_constant(Value::Number(1.0));
+        let i1 = chunk.write_constant(Value::Number(2.0));
+        let i2 = chunk.write_constant(Value::Number(3.0));
         assert_eq!(i0, 0);
         assert_eq!(i1, 1);
         assert_eq!(i2, 2);
@@ -106,11 +106,11 @@ mod constants {
     #[test]
     fn test_constant_instruction_roundtrip() {
         let mut chunk = Chunk::new();
-        let index = chunk.write_constant(42.0);
+        let index = chunk.write_constant(Value::Number(42.0));
         chunk.write(OpCode::Constant, 1);
         chunk.write(index, 1);
         let stored_index = chunk.code()[1] as usize;
-        assert_eq!(chunk.constants()[stored_index], 42.0);
+        assert_eq!(chunk.constants()[stored_index], Value::Number(42.0));
     }
 
     #[test]
@@ -118,14 +118,14 @@ mod constants {
         let mut chunk = Chunk::new();
         let values = [1.0, 2.0, 3.0];
         for (line, &v) in values.iter().enumerate() {
-            let index = chunk.write_constant(v);
+            let index = chunk.write_constant(Value::Number(v));
             chunk.write(OpCode::Constant, line as u32 + 1);
             chunk.write(index, line as u32 + 1);
         }
         // Each instruction is 2 bytes: opcode + index
         for (i, &expected) in values.iter().enumerate() {
             let index = chunk.code()[i * 2 + 1] as usize;
-            assert_eq!(chunk.constants()[index], expected);
+            assert_eq!(chunk.constants()[index], Value::Number(expected));
         }
     }
 }
@@ -143,7 +143,7 @@ mod opcodes {
             (OpCode::UnaryNegate, 2_u8),
             (OpCode::BinaryAdd, 3_u8),
             (OpCode::BinarySubtract, 4_u8),
-            (OpCode::BinaryMultiple, 5_u8),
+            (OpCode::BinaryMultiply, 5_u8),
             (OpCode::BinaryDivide, 6_u8),
         ];
         let mut chunk = Chunk::new();

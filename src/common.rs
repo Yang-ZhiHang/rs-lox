@@ -1,18 +1,23 @@
 /// common.rs: In this file, we made some disassemble tools to debug.
 /// We'd better make the file not to compile in release mode.
 /// Use #[cfg(debug_assertions)] when import this module.
-use crate::chunk::{Chunk, OpCode};
+use crate::chunk::{Chunk, OpCode, Value};
 
 /// Just print the opcode name to the console.
 pub fn simple_instruction(_chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
-    println!("{:?}", opcode);
+    println!("{}", opcode);
     offset + 1
 }
 
+#[rustfmt::skip]
 /// Print the constant opcode value to the console.
 pub fn constant_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
-    println!("{:?} {}", opcode, val);
+    match val {
+        Value::Nil        => println!("{} nil", opcode),
+        Value::Bool(b)    => println!("{} {}", opcode, b),
+        Value::Number(n)  => println!("{} {}", opcode, n),
+    }
     offset + 2
 }
 
@@ -20,7 +25,7 @@ pub fn constant_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usi
 pub fn disassemble(chunk: &Chunk, name: &str) {
     // Print the name title so that we know which chunk we are looking.
     println!("== {} ==", name);
-    println!("offset line opcode");
+    println!("Offset Line Opcode");
     let mut offset = 0;
     // Execute each instruction (the size of instruction may be different).
     while offset < chunk.code().len() {

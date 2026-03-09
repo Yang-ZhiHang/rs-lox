@@ -1,19 +1,21 @@
-use crate::constant::{Constant, Value};
-
 // Use strum to automatically distribute number for enum member. It's useful when we
 // read bytes data and detect it is opcode or index.
-#[derive(Clone, Copy, Debug, strum::FromRepr)]
+#[derive(Clone, Copy, Debug, strum::Display, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
     Return,
-    /// There is still one byte of space after `OpConstant` for storing the constant index.
+    /// Literal
+    // There is still one byte of space after `OpConstant` for storing the constant index.
     Constant,
+    Nil,
+    True,
+    False,
     /// Unary
     UnaryNegate,
     /// Binary
     BinaryAdd,
     BinarySubtract,
-    BinaryMultiple,
+    BinaryMultiply,
     BinaryDivide,
 }
 
@@ -36,6 +38,59 @@ impl IntoU8 for usize {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Value {
+    Nil,
+    Bool(bool),
+    Number(f64),
+}
+
+impl Value {
+    /// Unwrap the `Value` struct and return f64 if the value is `Number`.
+    /// Otherwise, panic.
+    /// `is_number` function is always called before this function.
+    pub fn as_number(&self) -> f64 {
+        match self {
+            Value::Number(n) => *n,
+            _ => panic!("Operand must be a number."),
+        }
+    }
+    
+    /// Unwrap the `Value` struct and return the mutable reference f64 if 
+    /// the value is `Number`. Otherwise, panic.
+    /// `is_number` function is always called before this function.
+    pub fn as_number_mut(&mut self) -> Option<&mut f64> {
+        match self {
+            Value::Number(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// Unwrap the `Value` struct and return bool if the value is `Bool`.
+    /// Otherwise, panic.
+    /// `is_bool` function is always called before this function.
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Value::Bool(b) => *b,
+            _ => panic!("Operand must be a bool."),
+        }
+    }
+
+    /// Check if the `Value` struct is a f64 and return bool.
+    pub fn is_number(&self) -> bool {
+        matches!(self, Value::Number(_))
+    }
+
+    /// Check if the `Value` struct is truth or not and return bool.
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Nil => false,
+            Value::Bool(b) => *b,
+            Value::Number(_) => true,
+        }
+    }
+}
+
 /// `Chunk` is used to store loads of `OpCode`.
 /// All of the member of `Chunk` is private, because the members are related to each
 /// other (instead of pure data container), which will cause chaos if make them public.
@@ -45,7 +100,7 @@ pub struct Chunk {
     /// be constant value index which the type is not `OpCode` but usize.
     code: Vec<u8>,
     /// Constant area (BSS or heap).
-    constants: Constant,
+    constants: Vec<Value>,
     /// Container to stored the line number of each code.
     /// fmt: (line number, count)
     /// We use this format (RLE) instead of making line number to be index and count to be
@@ -64,7 +119,7 @@ impl Chunk {
     pub fn new() -> Self {
         Self {
             code: vec![],
-            constants: Constant::new(),
+            constants: vec![],
             line: vec![],
         }
     }
@@ -76,7 +131,7 @@ impl Chunk {
 
     /// Getter of member `constants`.
     pub fn constants(&self) -> &[Value] {
-        self.constants.values()
+        &self.constants
     }
 
     /// Getter of member `line`.
@@ -110,6 +165,7 @@ impl Chunk {
     /// Write a constant value to the constant area and return the value index
     /// in the constant area.
     pub fn write_constant(&mut self, value: Value) -> usize {
-        self.constants.write(value)
+        self.constants.push(value);
+        self.constants.len() - 1
     }
 }

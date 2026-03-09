@@ -3,7 +3,6 @@ use std::env;
 pub mod chunk;
 #[cfg(debug_assertions)]
 pub mod common;
-pub mod constant;
 pub mod file;
 pub mod macros;
 pub mod parser;

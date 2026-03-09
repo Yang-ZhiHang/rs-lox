@@ -1,16 +1,15 @@
 /// vm.rs: We call this LVM (Lox Virtual Machine).
 use crate::{
     binary_op,
-    chunk::{Chunk, OpCode},
-    constant::Value,
+    chunk::{Chunk, OpCode, Value},
 };
 
 const STACK_SIZE: usize = 256;
 
 pub enum InterpretResult {
-    InterpretOk,
-    InterpretCompileError,
-    InterpretRuntimeError,
+    Ok,
+    CompileError,
+    RuntimeError,
 }
 
 pub struct VM {
@@ -39,7 +38,7 @@ impl VM {
     pub fn new() -> Self {
         Self {
             pc: 0,
-            stack: vec![0f64; STACK_SIZE],
+            stack: vec![Value::Nil; STACK_SIZE],
             stack_top: 0,
         }
     }
@@ -57,33 +56,44 @@ impl VM {
             let opcode = Self::read_byte(chunk, &mut self.pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
+                    OpCode::True => self.push(Value::Bool(true)),
+                    OpCode::False => self.push(Value::Bool(false)),
+                    OpCode::Nil => self.push(Value::Nil),
                     OpCode::Constant => {
                         let value = Self::read_constant(chunk, &mut self.pc);
                         self.push(value);
                     }
                     OpCode::Return => {
-                        let value = self.pop();
-                        println!("{}", value);
+                        let val = self.pop();
+                        match val {
+                            Value::Nil => println!("{} nil", opcode),
+                            Value::Bool(b) => println!("{} {}", opcode, b),
+                            Value::Number(n) => println!("{} {}", opcode, n),
+                        }
                     }
                     OpCode::UnaryNegate => {
-                        // The element stack top pointed to is the next element.
-                        // So we need to subtract 1.
-                        if let Some(top) = self.stack.get_mut(self.stack_top - 1) {
-                            *top = -*top;
+                        let val = &mut self.stack[self.stack_top - 1];
+                        match val {
+                            Value::Number(v) => *v = -*v,
+                            _ => {
+                                // eprintln!("Operand must be a number.");
+                                self.runtime_error(chunk, "Operand must be a number.");
+                                return InterpretResult::RuntimeError;
+                            }
                         }
                     }
                     OpCode::BinaryAdd => binary_op!(self, +),
                     OpCode::BinarySubtract => binary_op!(self, -),
-                    OpCode::BinaryMultiple => binary_op!(self, *),
+                    OpCode::BinaryMultiply => binary_op!(self, *),
                     OpCode::BinaryDivide => binary_op!(self, /),
                 },
                 None => {
-                    println!("Unknown opcode: {}", opcode);
-                    return InterpretResult::InterpretCompileError;
+                    eprintln!("Unknown opcode: {}", opcode);
+                    return InterpretResult::CompileError;
                 }
             }
         }
-        InterpretResult::InterpretOk
+        InterpretResult::Ok
     }
 
     /// Read a byte data from given chunk and increase pc.
@@ -102,24 +112,38 @@ impl VM {
     }
 
     /// Push a value to the stack of vm.
-    /// TODO: Full error handling
     pub fn push(&mut self, value: Value) {
         self.stack[self.stack_top] = value;
         self.stack_top += 1;
     }
 
     /// Pop a value from the stack of vm.
-    /// TODO: Empty error handling
     pub fn pop(&mut self) -> Value {
         self.stack_top -= 1;
         self.stack[self.stack_top]
     }
 
     /// Return a mutable reference to the current top value of the stack.
-    /// Used by binary_op! to mutate the top value in-place without an extra modify on
-    /// `stack_top`.
-    /// TODO: Error handling (if stack_top is 0).
+    /// Used by binary_op! to mutate the top value in-place without an ex
+    /// tra modify on `stack_top`.
     pub fn stack_top_mut(&mut self) -> &mut Value {
         &mut self.stack[self.stack_top - 1]
+    }
+
+    /// Return the value away `n` from top element of the stack.
+    pub fn peek(&self, n: usize) -> Value {
+        self.stack[self.stack_top - 1 - n]
+    }
+
+    pub fn runtime_error(&mut self, chunk: &Chunk, msg: &str) {
+        let line = chunk.get_line(self.pc);
+        println!("{}:{}: {}", line, self.pc, msg);
+        self.reset_stack();
+    }
+
+    /// Reset the stack of vm.
+    pub fn reset_stack(&mut self) {
+        self.stack = vec![Value::Nil; STACK_SIZE];
+        self.stack_top = 0;
     }
 }

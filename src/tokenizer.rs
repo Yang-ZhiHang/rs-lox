@@ -112,7 +112,7 @@ impl<'a> Tokenizer<'a> {
     /// Scan each character and return a token.
     pub fn scan_token(&mut self) -> Token {
         self.start = self.current;
-        // Return end of file token type if reach the end.
+        // Return end of file token type if reach the end (Currently, we don't use `scan_tokens()`).
         if self.is_at_end() {
             return self.make_token(TokenType::EOF);
         }

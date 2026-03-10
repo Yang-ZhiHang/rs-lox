@@ -209,6 +209,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Write two bytes to the chunk.
+    /// Used to write opcode with it's immediate operand.
     pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8) {
         self.emit_byte(byte1);
         self.emit_byte(byte2);
@@ -227,6 +228,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The number handling unit of Pratt parser.
     pub fn number(&mut self) {
         let source = self.tokenizer.source();
         let slice = &source[self.prev.start..self.prev.start + self.prev.len];
@@ -237,6 +239,7 @@ impl<'a> Parser<'a> {
         self.emit_constant(Value::Number(val));
     }
 
+    /// The parenthesis handling unit of Pratt parser.
     pub fn grouping(&mut self) {
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' after expression.");
@@ -254,6 +257,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The unary operator handling unit of Pratt parser.
     pub fn unary(&mut self) {
         let tt = self.prev.token_type;
         // Save the operator's line before expression() advances `prev`
@@ -262,17 +266,19 @@ impl<'a> Parser<'a> {
         let line = self.prev.line;
         // Compile the operand.
         self.parse_precedence(Precedence::Unary);
-        #[allow(clippy::single_match)]
         // Emit the operator instruction.
-        // We will add more match case in the future.
         match tt {
             TokenType::Minus => {
                 self.chunk.write(OpCode::UnaryNegate, line);
+            }
+            TokenType::Bang => {
+                self.chunk.write(OpCode::UnaryNot, line);
             }
             _ => {}
         }
     }
 
+    /// The binary operator handling unit of Pratt parser.
     pub fn binary(&mut self) {
         let tt = self.prev.token_type;
         // Save the operator's line before parse_precedence advances `prev`

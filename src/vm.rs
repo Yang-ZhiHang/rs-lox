@@ -56,6 +56,10 @@ impl VM {
             let opcode = Self::read_byte(chunk, &mut self.pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
+                    OpCode::UnaryNot => {
+                        let val = &mut self.stack[self.stack_top - 1];
+                        *val = Value::Bool(val.is_falsey());
+                    }
                     OpCode::True => self.push(Value::Bool(true)),
                     OpCode::False => self.push(Value::Bool(false)),
                     OpCode::Nil => self.push(Value::Nil),
@@ -65,18 +69,13 @@ impl VM {
                     }
                     OpCode::Return => {
                         let val = self.pop();
-                        match val {
-                            Value::Nil => println!("{} nil", opcode),
-                            Value::Bool(b) => println!("{} {}", opcode, b),
-                            Value::Number(n) => println!("{} {}", opcode, n),
-                        }
+                        val.print();
                     }
                     OpCode::UnaryNegate => {
                         let val = &mut self.stack[self.stack_top - 1];
                         match val {
                             Value::Number(v) => *v = -*v,
                             _ => {
-                                // eprintln!("Operand must be a number.");
                                 self.runtime_error(chunk, "Operand must be a number.");
                                 return InterpretResult::RuntimeError;
                             }

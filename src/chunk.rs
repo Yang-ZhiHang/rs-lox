@@ -12,6 +12,7 @@ pub enum OpCode {
     False,
     /// Unary
     UnaryNegate,
+    UnaryNot,
     /// Binary
     BinaryAdd,
     BinarySubtract,
@@ -55,8 +56,8 @@ impl Value {
             _ => panic!("Operand must be a number."),
         }
     }
-    
-    /// Unwrap the `Value` struct and return the mutable reference f64 if 
+
+    /// Unwrap the `Value` struct and return the mutable reference f64 if
     /// the value is `Number`. Otherwise, panic.
     /// `is_number` function is always called before this function.
     pub fn as_number_mut(&mut self) -> Option<&mut f64> {
@@ -76,9 +77,19 @@ impl Value {
         }
     }
 
-    /// Check if the `Value` struct is a f64 and return bool.
+    /// Check if the `Value` struct is f64 and return bool.
     pub fn is_number(&self) -> bool {
         matches!(self, Value::Number(_))
+    }
+
+    /// Check if the `Value` struct is a bool value and return bool.
+    pub fn is_bool(&self) -> bool {
+        matches!(self, Value::Bool(_))
+    }
+
+    /// Check if the `Value` struct is nil and return bool.
+    pub fn is_nil(&self) -> bool {
+        matches!(self, Value::Nil)
     }
 
     /// Check if the `Value` struct is truth or not and return bool.
@@ -87,6 +98,22 @@ impl Value {
             Value::Nil => false,
             Value::Bool(b) => *b,
             Value::Number(_) => true,
+        }
+    }
+
+    /// Check if the `Value` struct is false and return bool.
+    pub fn is_falsey(&self) -> bool {
+        self.is_nil()
+            || (self.is_bool() && !self.as_bool())
+            || (self.is_number() && self.as_number() == 0f64)
+    }
+    
+    /// Print the inner field value to console.
+    pub fn print(&self) {
+        match self {
+            Value::Nil => println!("nil"),
+            Value::Bool(b) => println!("{}", b),
+            Value::Number(n) => println!("{}", n),
         }
     }
 }

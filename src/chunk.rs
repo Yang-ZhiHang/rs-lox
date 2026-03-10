@@ -11,13 +11,16 @@ pub enum OpCode {
     True,
     False,
     /// Unary
-    UnaryNegate,
-    UnaryNot,
+    Negate,
+    Not,
     /// Binary
-    BinaryAdd,
-    BinarySubtract,
-    BinaryMultiply,
-    BinaryDivide,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Less,
+    Greater,
+    Equal,
 }
 
 /// A trait for types that can be written into the chunk as a single byte.
@@ -47,52 +50,47 @@ pub enum Value {
 }
 
 impl Value {
-    /// Unwrap the `Value` struct and return f64 if the value is `Number`.
-    /// Otherwise, panic.
-    /// `is_number` function is always called before this function.
-    pub fn as_number(&self) -> f64 {
+    /// Return `f64` if the value is `Value::Number` else error.
+    pub fn as_number(&self) -> Result<f64, &'static str> {
         match self {
-            Value::Number(n) => *n,
-            _ => panic!("Operand must be a number."),
+            Value::Number(n) => Ok(*n),
+            _ => Err("Operand must be a number."),
         }
     }
 
-    /// Unwrap the `Value` struct and return the mutable reference f64 if
-    /// the value is `Number`. Otherwise, panic.
-    /// `is_number` function is always called before this function.
-    pub fn as_number_mut(&mut self) -> Option<&mut f64> {
+    /// Return a muttable reference `f64` if the value is `Value::Number`
+    /// else error.
+    pub fn as_number_mut(&mut self) -> Result<&mut f64, &'static str> {
         match self {
-            Value::Number(n) => Some(n),
-            _ => None,
+            Value::Number(n) => Ok(n),
+            _ => Err("Operand must be a number."),
         }
     }
 
-    /// Unwrap the `Value` struct and return bool if the value is `Bool`.
-    /// Otherwise, panic.
-    /// `is_bool` function is always called before this function.
-    pub fn as_bool(&self) -> bool {
+    /// Return `bool` if the value is `Value::Bool` else error.
+    pub fn as_bool(&self) -> Result<bool, &'static str> {
         match self {
-            Value::Bool(b) => *b,
-            _ => panic!("Operand must be a bool."),
+            Value::Bool(b) => Ok(*b),
+            _ => Err("Operand must be a bool."),
         }
     }
 
-    /// Check if the `Value` struct is f64 and return bool.
+    /// Return true if the value is `Value::Number` else false.
     pub fn is_number(&self) -> bool {
         matches!(self, Value::Number(_))
     }
 
-    /// Check if the `Value` struct is a bool value and return bool.
+    /// Return true if the value is `Value::Bool` else false.
     pub fn is_bool(&self) -> bool {
         matches!(self, Value::Bool(_))
     }
 
-    /// Check if the `Value` struct is nil and return bool.
+    /// Return true if the value is `Value::Nil` else false.
     pub fn is_nil(&self) -> bool {
         matches!(self, Value::Nil)
     }
 
-    /// Check if the `Value` struct is truth or not and return bool.
+    /// Return true if the result of the expression is truth else false.
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Nil => false,
@@ -101,14 +99,16 @@ impl Value {
         }
     }
 
-    /// Check if the `Value` struct is false and return bool.
+    /// Return true if the result of the expression is false else false.
     pub fn is_falsey(&self) -> bool {
-        self.is_nil()
-            || (self.is_bool() && !self.as_bool())
-            || (self.is_number() && self.as_number() == 0f64)
+        match self {
+            Value::Nil => true,
+            Value::Bool(b) => !b,
+            Value::Number(n) => *n == 0.0,
+        }
     }
-    
-    /// Print the inner field value to console.
+
+    /// Print the inner field value to the console.
     pub fn print(&self) {
         match self {
             Value::Nil => println!("nil"),
@@ -132,7 +132,7 @@ pub struct Chunk {
     /// fmt: (line number, count)
     /// We use this format (RLE) instead of making line number to be index and count to be
     /// value, because we shouldn't store empty line.
-    line: Vec<(u32, u32)>,
+    line: Vec<(u16, u16)>,
 }
 
 impl Default for Chunk {
@@ -162,16 +162,16 @@ impl Chunk {
     }
 
     /// Getter of member `line`.
-    pub fn line(&self) -> &[(u32, u32)] {
+    pub fn line(&self) -> &[(u16, u16)] {
         &self.line
     }
 
     /// Get the line number of opcode in given offset.
-    pub fn get_line(&self, offset: usize) -> u32 {
+    pub fn get_line(&self, offset: usize) -> u16 {
         let mut acc = 0;
         for pair in self.line.iter() {
             acc += pair.1;
-            if acc > offset as u32 {
+            if acc > offset as u16 {
                 return pair.0;
             }
         }
@@ -179,7 +179,7 @@ impl Chunk {
     }
 
     /// Write a byte to the chunk.
-    pub fn write(&mut self, byte: impl IntoU8, line: u32) {
+    pub fn write(&mut self, byte: impl IntoU8, line: u16) {
         self.code.push(byte.into_u8());
         match self.line.last_mut() {
             // Increase line number count if the line number already exists.

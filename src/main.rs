@@ -15,10 +15,14 @@ pub fn run_file(vm: &mut VM, path: &str) {
     // Read source code
     let source = read_file(path);
     let tokenizer = Tokenizer::new(&source);
-    let mut parser = Parser::new(tokenizer);
-    if parser.compile() {
-        let chunk = parser.chunk;
-        vm.interpret(&chunk);
+    let parser = Parser::new(tokenizer);
+    match parser.compile() {
+        Ok(chunk) => {
+            vm.interpret(&chunk);
+        }
+        Err(_) => {
+            eprintln!("Error compiling source code.");
+        }
     }
 }
 

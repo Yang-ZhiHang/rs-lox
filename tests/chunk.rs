@@ -10,12 +10,12 @@ mod write {
         let mut chunk = Chunk::new();
         chunk.write(OpCode::Constant, 1);
         chunk.write(0_usize, 1);
-        chunk.write(OpCode::UnaryNegate, 1);
+        chunk.write(OpCode::Negate, 1);
         chunk.write(OpCode::Return, 1);
         let code = chunk.code();
         assert_eq!(code[0], OpCode::Constant as u8);
         assert_eq!(code[1], 0_u8);
-        assert_eq!(code[2], OpCode::UnaryNegate as u8);
+        assert_eq!(code[2], OpCode::Negate as u8);
         assert_eq!(code[3], OpCode::Return as u8);
     }
 }
@@ -119,8 +119,8 @@ mod constants {
         let values = [1.0, 2.0, 3.0];
         for (line, &v) in values.iter().enumerate() {
             let index = chunk.write_constant(Value::Number(v));
-            chunk.write(OpCode::Constant, line as u32 + 1);
-            chunk.write(index, line as u32 + 1);
+            chunk.write(OpCode::Constant, line as u16 + 1);
+            chunk.write(index, line as u16 + 1);
         }
         // Each instruction is 2 bytes: opcode + index
         for (i, &expected) in values.iter().enumerate() {
@@ -140,11 +140,11 @@ mod opcodes {
         let opcodes = [
             (OpCode::Return, 0_u8),
             (OpCode::Constant, 1_u8),
-            (OpCode::UnaryNegate, 2_u8),
-            (OpCode::BinaryAdd, 3_u8),
-            (OpCode::BinarySubtract, 4_u8),
-            (OpCode::BinaryMultiply, 5_u8),
-            (OpCode::BinaryDivide, 6_u8),
+            (OpCode::Negate, 2_u8),
+            (OpCode::Add, 3_u8),
+            (OpCode::Subtract, 4_u8),
+            (OpCode::Multiply, 5_u8),
+            (OpCode::Divide, 6_u8),
         ];
         let mut chunk = Chunk::new();
         for &(op, _) in &opcodes {
@@ -157,7 +157,7 @@ mod opcodes {
 
     #[test]
     fn test_opcodes_are_contiguous_from_zero() {
-        let last_known = OpCode::BinaryDivide as u8;
+        let last_known = OpCode::Divide as u8;
         for byte in 0..=last_known {
             assert!(
                 OpCode::from_repr(byte).is_some(),

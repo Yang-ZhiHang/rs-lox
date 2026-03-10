@@ -3,7 +3,8 @@ pub struct Token {
     pub token_type: TokenType,
     pub start: usize,
     pub len: usize,
-    pub line: u32,
+    pub line: u16,
+    pub col: u16,
 }
 
 impl Default for Token {
@@ -13,17 +14,19 @@ impl Default for Token {
             start: 0,
             len: 0,
             line: 1,
+            col: 1,
         }
     }
 }
 
 impl Token {
-    pub fn new(tt: TokenType, start: usize, len: usize, line: u32) -> Self {
+    pub fn new(tt: TokenType, start: usize, len: usize, line: u16, col: u16) -> Self {
         Self {
             token_type: tt,
             start,
             len,
             line,
+            col,
         }
     }
 }
@@ -51,6 +54,7 @@ pub enum TokenType {
     BangEqual,
     LessEqual,
     GreaterEqual,
+    EqualEqual,
     // Literal
     String,
     Identifier,
@@ -88,8 +92,11 @@ pub struct Tokenizer<'a> {
     start: usize,
     /// The index of ready character.
     current: usize,
-    /// The current line of source code file.
-    line: u32,
+    /// The current line.
+    line: u16,
+    /// The current column.
+    /// TODO: complete the logic of computing column number.
+    col: u16,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -101,6 +108,7 @@ impl<'a> Tokenizer<'a> {
             start: 0,
             current: 0,
             line: 1,
+            col: 1,
         }
     }
 
@@ -141,6 +149,14 @@ impl<'a> Tokenizer<'a> {
                 };
                 self.make_token(t)
             }
+            '=' => {
+                let t = if self.next('=') {
+                    TokenType::EqualEqual
+                } else {
+                    TokenType::Equal
+                };
+                self.make_token(t)
+            }
             '<' => {
                 let t = if self.next('=') {
                     TokenType::LessEqual
@@ -174,6 +190,7 @@ impl<'a> Tokenizer<'a> {
                 }
                 '\n' => {
                     self.line += 1;
+                    self.col = 1;
                     self.advance();
                 }
                 '/' => {
@@ -208,7 +225,13 @@ impl<'a> Tokenizer<'a> {
     /// The information of `Token` (start index, length, line number) will be automatically
     /// supplied from tokenizer.
     pub fn make_token(&self, tt: TokenType) -> Token {
-        Token::new(tt, self.start, self.current - self.start, self.line)
+        Token::new(
+            tt,
+            self.start,
+            self.current - self.start,
+            self.line,
+            self.col,
+        )
     }
 
     /// Generate a error token with error message.
@@ -221,6 +244,7 @@ impl<'a> Tokenizer<'a> {
             self.start,
             self.current - self.start,
             self.line,
+            self.col,
         )
     }
 
@@ -232,6 +256,7 @@ impl<'a> Tokenizer<'a> {
     /// `current` will be at the next index and return the character at the former index.
     pub fn advance(&mut self) -> char {
         self.current += 1;
+        self.col += 1;
         self.src[self.current - 1] as char
     }
 
@@ -242,6 +267,7 @@ impl<'a> Tokenizer<'a> {
             self.start,
             self.current - self.start,
             self.line,
+            self.col,
         ));
     }
 
@@ -339,10 +365,15 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Check if the scanning token is keyword, else if return normal identifier token type.
-    pub fn check_keyword(&mut self, start: usize, len: usize, pattern: &str, tt: TokenType) -> Token {
-        if &self.src[self.start + start..self.start + start + len] == pattern.as_bytes()
-        {
-            self.current += len + 1;
+    pub fn check_keyword(
+        &mut self,
+        start: usize,
+        len: usize,
+        pattern: &str,
+        tt: TokenType,
+    ) -> Token {
+        if &self.src[self.start + start..self.start + start + len] == pattern.as_bytes() {
+            self.current = self.start + start + len;
             self.make_token(tt)
         } else {
             self.make_token(TokenType::Identifier)

@@ -81,13 +81,14 @@ pub fn get_rule<'a>(tt: TokenType) -> ParseRule<'a> {
         TokenType::Semicolon    => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Star         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::Bang         => ParseRule::new(Some(Parser::unary),    None,                 Precedence::None),
-        TokenType::Equal        => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Less         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
-        TokenType::Greater      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Slash        => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::BangEqual    => ParseRule::new(None,                   Some(Parser::binary), Precedence::Equality),
         TokenType::LessEqual    => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::GreaterEqual => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::EqualEqual   => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::Less         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::Greater      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
+        TokenType::Equal        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::String       => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Identifier   => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
@@ -110,6 +111,10 @@ pub fn get_rule<'a>(tt: TokenType) -> ParseRule<'a> {
         TokenType::Error(_)     => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::EOF          => ParseRule::new(None,                   None,                 Precedence::None),
     }
+}
+
+pub enum CompileError {
+    SyntaxError,
 }
 
 pub struct Parser<'a> {
@@ -136,12 +141,16 @@ impl<'a> Parser<'a> {
     }
 
     /// Compile source code into byte code.
-    pub fn compile(&mut self) -> bool {
+    pub fn compile(mut self) -> Result<Chunk, CompileError> {
         self.advance();
         self.expression();
         self.consume(TokenType::EOF, "Expected end of expression.");
         self.end_compile();
-        !self.had_error
+        if self.had_error {
+            Err(CompileError::SyntaxError)
+        } else {
+            Ok(self.chunk)
+        }
     }
 
     /// Start single-step token scanning and detect error.
@@ -198,26 +207,26 @@ impl<'a> Parser<'a> {
         self.had_error = true;
     }
 
-    pub fn emit_byte(&mut self, byte: impl IntoU8) {
-        self.chunk.write(byte, self.prev.line);
+    pub fn emit_byte(&mut self, byte: impl IntoU8, line: u16) {
+        self.chunk.write(byte, line);
     }
 
     /// Write operation code and constant value index (which from constant area) to the chunk.
-    pub fn emit_constant(&mut self, constant: Value) {
+    pub fn emit_constant(&mut self, constant: Value, line: u16) {
         let idx = self.chunk.write_constant(constant);
-        self.emit_bytes(OpCode::Constant, idx);
+        self.emit_bytes(OpCode::Constant, idx, line);
     }
 
     /// Write two bytes to the chunk.
     /// Used to write opcode with it's immediate operand.
-    pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8) {
-        self.emit_byte(byte1);
-        self.emit_byte(byte2);
+    pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8, line: u16) {
+        self.emit_byte(byte1, line);
+        self.emit_byte(byte2, line);
     }
 
     /// Write return operation code to chunk.
     pub fn emit_return(&mut self) {
-        self.emit_byte(OpCode::Return);
+        self.emit_byte(OpCode::Return, self.cur.line);
     }
 
     /// Write return operation code to chunk.
@@ -236,7 +245,7 @@ impl<'a> Parser<'a> {
             .expect("Number token should be valid UTF-8.")
             .parse()
             .expect("Number token should be a valid float.");
-        self.emit_constant(Value::Number(val));
+        self.emit_constant(Value::Number(val), self.prev.line);
     }
 
     /// The parenthesis handling unit of Pratt parser.
@@ -245,12 +254,13 @@ impl<'a> Parser<'a> {
         self.consume(TokenType::RightParen, "Expected ')' after expression.");
     }
 
+    #[rustfmt::skip]
     /// The literal handling unit of Pratt parser.
     pub fn literal(&mut self) {
         match self.prev.token_type {
-            TokenType::True => self.emit_byte(OpCode::True),
-            TokenType::False => self.emit_byte(OpCode::False),
-            TokenType::Nil => self.emit_byte(OpCode::Nil),
+            TokenType::True  => self.emit_byte(OpCode::True, self.prev.line),
+            TokenType::False => self.emit_byte(OpCode::False, self.prev.line),
+            TokenType::Nil   => self.emit_byte(OpCode::Nil, self.prev.line),
             _ => {
                 // Unreachable
             }
@@ -269,10 +279,10 @@ impl<'a> Parser<'a> {
         // Emit the operator instruction.
         match tt {
             TokenType::Minus => {
-                self.chunk.write(OpCode::UnaryNegate, line);
+                self.chunk.write(OpCode::Negate, line);
             }
             TokenType::Bang => {
-                self.chunk.write(OpCode::UnaryNot, line);
+                self.chunk.write(OpCode::Not, line);
             }
             _ => {}
         }
@@ -281,23 +291,27 @@ impl<'a> Parser<'a> {
     /// The binary operator handling unit of Pratt parser.
     pub fn binary(&mut self) {
         let tt = self.prev.token_type;
-        // Save the operator's line before parse_precedence advances `prev`
-        // to the right-hand operand, which would cause emit_byte to record
-        // the wrong line number for the binary opcode.
+        // Save the operator's line number before `parse_precedence` advances `prev`.
+        // This ensures the emitted bytecode has the correct line number for the oper
+        // -ator, even if the expression spans multiple lines.
         let line = self.prev.line;
         let rule = get_rule(tt);
         self.parse_precedence(rule.precedence.next());
         #[rustfmt::skip]
-        let op = match tt {
-            TokenType::Plus  => Some(OpCode::BinaryAdd),
-            TokenType::Minus => Some(OpCode::BinarySubtract),
-            TokenType::Star  => Some(OpCode::BinaryMultiply),
-            TokenType::Slash => Some(OpCode::BinaryDivide),
-            _ => None,
+        match tt {
+            TokenType::Plus         => self.emit_byte(OpCode::Add, line),
+            TokenType::Minus        => self.emit_byte(OpCode::Subtract, line),
+            TokenType::Star         => self.emit_byte(OpCode::Multiply, line),
+            TokenType::Slash        => self.emit_byte(OpCode::Divide, line),
+            TokenType::Equal        => self.emit_byte(OpCode::Equal, line),
+            TokenType::BangEqual    => self.emit_bytes(OpCode::Equal, OpCode::Not, line),
+            TokenType::Less         => self.emit_byte(OpCode::Less, line),
+            TokenType::Greater      => self.emit_byte(OpCode::Greater, line),
+            TokenType::LessEqual    => self.emit_bytes(OpCode::Less, OpCode::Not, line),
+            TokenType::GreaterEqual => self.emit_bytes(OpCode::Greater, OpCode::Not, line),
+            TokenType::EqualEqual   => self.emit_byte(OpCode::Equal, line),
+            _ => {},
         };
-        if let Some(op) = op {
-            self.chunk.write(op, line);
-        }
     }
 
     /// Parse the precedence of previous token.

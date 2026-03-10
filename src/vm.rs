@@ -56,13 +56,6 @@ impl VM {
             let opcode = Self::read_byte(chunk, &mut self.pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
-                    OpCode::UnaryNot => {
-                        let val = &mut self.stack[self.stack_top - 1];
-                        *val = Value::Bool(val.is_falsey());
-                    }
-                    OpCode::True => self.push(Value::Bool(true)),
-                    OpCode::False => self.push(Value::Bool(false)),
-                    OpCode::Nil => self.push(Value::Nil),
                     OpCode::Constant => {
                         let value = Self::read_constant(chunk, &mut self.pc);
                         self.push(value);
@@ -71,7 +64,7 @@ impl VM {
                         let val = self.pop();
                         val.print();
                     }
-                    OpCode::UnaryNegate => {
+                    OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
                         match val {
                             Value::Number(v) => *v = -*v,
@@ -81,13 +74,27 @@ impl VM {
                             }
                         }
                     }
-                    OpCode::BinaryAdd => binary_op!(self, +),
-                    OpCode::BinarySubtract => binary_op!(self, -),
-                    OpCode::BinaryMultiply => binary_op!(self, *),
-                    OpCode::BinaryDivide => binary_op!(self, /),
+                    OpCode::Add => binary_op!(self, number, +),
+                    OpCode::Subtract => binary_op!(self, number, -),
+                    OpCode::Multiply => binary_op!(self, number, *),
+                    OpCode::Divide => binary_op!(self, number, /),
+                    OpCode::Not => {
+                        let val = &mut self.stack[self.stack_top - 1];
+                        *val = Value::Bool(val.is_falsey());
+                    }
+                    OpCode::True => self.push(Value::Bool(true)),
+                    OpCode::False => self.push(Value::Bool(false)),
+                    OpCode::Nil => self.push(Value::Nil),
+                    OpCode::Less => binary_op!(self, bool, <),
+                    OpCode::Greater => binary_op!(self, bool, >),
+                    OpCode::Equal => {
+                        let b = self.pop();
+                        let a = self.pop();
+                        self.push(Value::Bool(a == b));
+                    }
                 },
                 None => {
-                    eprintln!("Unknown opcode: {}", opcode);
+                    self.runtime_error(chunk, &format!("Unknown opcode: {}", opcode));
                     return InterpretResult::CompileError;
                 }
             }

@@ -380,3 +380,60 @@ impl<'a> Tokenizer<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_tokenizer;
+
+    /// Extract token types from token list.
+    fn token_types(tokens: &[Token]) -> Vec<TokenType> {
+        tokens.iter().map(|t| t.token_type).collect()
+    }
+
+    test_tokenizer!(
+        test_tokens,
+        [
+            // Empty source should produce only EOF token.
+            ("", vec![TokenType::EOF]),
+            // Single character tokens.
+            (
+                "(){},.-+;*=<>!",
+                vec![
+                    TokenType::LeftParen,
+                    TokenType::RightParen,
+                    TokenType::LeftBrace,
+                    TokenType::RightBrace,
+                    TokenType::Comma,
+                    TokenType::Dot,
+                    TokenType::Minus,
+                    TokenType::Plus,
+                    TokenType::Semicolon,
+                    TokenType::Star,
+                    TokenType::Equal,
+                    TokenType::Less,
+                    TokenType::Greater,
+                    TokenType::Bang,
+                    TokenType::EOF,
+                ]
+            ),
+            // Two character tokens.
+            (
+                "!= <= >=",
+                vec![
+                    TokenType::BangEqual,
+                    TokenType::LessEqual,
+                    TokenType::GreaterEqual,
+                    TokenType::EOF
+                ]
+            ),
+            // String token.
+            (
+                "\"Hello, world\n\"",
+                vec![TokenType::String, TokenType::EOF]
+            ),
+            // Comment should be ignored.
+            ("// this is a comment\n", vec![TokenType::EOF])
+        ]
+    );
+}

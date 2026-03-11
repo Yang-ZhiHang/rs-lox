@@ -1,16 +1,8 @@
 use std::env;
 
-pub mod chunk;
-#[cfg(debug_assertions)]
-pub mod common;
-pub mod file;
-pub mod macros;
-pub mod parser;
-pub mod tokenizer;
-pub mod vm;
+use lox::{file::read_file, parser::Parser, tokenizer::Tokenizer, vm::VM};
 
-use crate::{file::read_file, parser::Parser, tokenizer::Tokenizer, vm::VM};
-
+/// Parse the source code with streaming parser.
 pub fn run_file(vm: &mut VM, path: &str) {
     // Read source code
     let source = read_file(path);

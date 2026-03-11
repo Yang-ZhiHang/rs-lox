@@ -1,6 +1,4 @@
 #[macro_export]
-/// Apply a binary operation on the top two values of the VM stack.
-/// Usage: binary_op!(self, +)
 macro_rules! binary_op {
     ($vm:expr, number, $op:tt) => {{
         // Pop b, then mutate a in-place at the new stack top.
@@ -29,4 +27,19 @@ macro_rules! binary_op {
             }
         }
     }};
+}
+
+#[cfg(test)]
+#[macro_export]
+macro_rules! test_tokenizer {
+    ($name:ident, $cases:expr) => {
+        #[test]
+        fn $name() {
+            for (src, expected) in $cases {
+                let mut tokenizer = Tokenizer::new(src);
+                let tokens = tokenizer.scan_tokens();
+                assert_eq!(token_types(&tokens), expected);
+            }
+        }
+    };
 }

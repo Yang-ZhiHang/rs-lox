@@ -16,7 +16,7 @@ impl Display for ObjData {
                 let s = obj.value.as_str();
                 write!(f, "{}", s)
             } // _ => {
-              //     // Unreachable
+              //     // Unreachable temporarily
               //     write!(f, "To be implemented.")
               // }
         }

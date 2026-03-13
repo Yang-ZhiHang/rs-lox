@@ -33,6 +33,7 @@ impl Heap {
         self.objs.len() - 1
     }
 
+    /// Write the string object into heap and return the index.
     pub fn write_string(&mut self, s: &str) -> usize {
         let obj = ObjData::String(ObjString::new(s));
         self.write(obj)

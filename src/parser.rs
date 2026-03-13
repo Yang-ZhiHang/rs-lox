@@ -1,8 +1,9 @@
+#[cfg(debug_assertions)]
+use crate::common::disassemble;
 use crate::{
     chunk::{Chunk, IntoU8, OpCode, Value},
-    common::disassemble,
     heap::Heap,
-    object::{ObjData, ObjId, ObjString},
+    object::ObjId,
     tokenizer::{Token, TokenType, Tokenizer},
 };
 
@@ -196,7 +197,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         }
         self.panic_mode = true;
 
-        print!("[line {}] Error", token.line);
+        print!("{}:{}: Error", token.line, token.col);
         if token.token_type == TokenType::EOF {
             print!(" at end")
         } else if let TokenType::Error(_) = token.token_type {
@@ -236,6 +237,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// Write return operation code to chunk.
     pub fn end_compile(&mut self) {
         self.emit_return();
+        #[cfg(debug_assertions)]
         if !self.had_error {
             disassemble(&self.chunk, self.heap, "code");
         }

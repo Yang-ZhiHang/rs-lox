@@ -108,7 +108,7 @@ impl<'a> Tokenizer<'a> {
             start: 0,
             current: 0,
             line: 1,
-            col: 1,
+            col: 0,
         }
     }
 
@@ -122,6 +122,8 @@ impl<'a> Tokenizer<'a> {
         self.start = self.current;
         // Return end of file token type if reach the end (Currently, we don't use `scan_tokens()`).
         if self.is_at_end() {
+            // Make `col` the last column.
+            self.col = (self.current + 1) as u16;
             return self.make_token(TokenType::EOF);
         }
         let c = self.advance();
@@ -277,7 +279,7 @@ impl<'a> Tokenizer<'a> {
             return false;
         }
         if self.src[self.current] as char == c {
-            self.current += 1;
+            self.advance();
             return true;
         }
         false
@@ -295,7 +297,7 @@ impl<'a> Tokenizer<'a> {
     /// Skip a `//` line comment, consuming until end of line.
     fn line_comment(&mut self) {
         while !self.is_at_end() && self.peek(0) != '\n' {
-            self.current += 1;
+            self.advance();
         }
     }
 
@@ -306,7 +308,7 @@ impl<'a> Tokenizer<'a> {
             if self.peek(0) == '\n' {
                 self.line += 1
             };
-            self.current += 1;
+            self.advance();
         }
         if self.is_at_end() {
             return self.error_token("Unclosed string");
@@ -384,7 +386,6 @@ impl<'a> Tokenizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
     macro_rules! test_tokenizer {
         ($name:ident, $cases:expr) => {
             #[test]

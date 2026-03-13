@@ -1,3 +1,10 @@
+use std::fmt::Display;
+
+use crate::{
+    heap::Heap,
+    object::{ObjData, ObjId},
+};
+
 // Use strum to automatically distribute number for enum member. It's useful when we
 // read bytes data and detect it is opcode or index.
 #[derive(Clone, Copy, Debug, strum::Display, strum::FromRepr)]
@@ -42,11 +49,16 @@ impl IntoU8 for usize {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Value {
     Nil,
     Bool(bool),
     Number(f64),
+    /// A heap-allocated Lox object, referenced by index.
+    ///
+    /// `ObjId` (an index into the VM's `Heap`) is stored rather than
+    /// `ObjData` so that `Value` remains `Copy` trait.
+    Object(ObjId),
 }
 
 impl Value {
@@ -67,6 +79,20 @@ impl Value {
         }
     }
 
+    /// Return a copy of `String` if the `Value::Object` is `ObjString` 
+    /// else error.
+    pub fn as_string(&self, heap: &Heap) -> Result<String, &'static str> {
+        if let Value::Object(ObjId(idx)) = self {
+            #[allow(irrefutable_let_patterns)]
+            // TODO: remove the `allow` attr when ObjData more than one.
+            if let ObjData::String(obj) = heap.get(*idx) {
+                let s = String::from(&obj.value);
+                return Ok(s);
+            };
+        }
+        Err("Operand must be a string.")
+    }
+
     /// Return `bool` if the value is `Value::Bool` else error.
     pub fn as_bool(&self) -> Result<bool, &'static str> {
         match self {
@@ -78,6 +104,21 @@ impl Value {
     /// Return true if the value is `Value::Number` else false.
     pub fn is_number(&self) -> bool {
         matches!(self, Value::Number(_))
+    }
+
+    /// Return true if the value is `Value::Object` else false.
+    pub fn is_string(&self, heap: &Heap) -> bool {
+        match self {
+            Value::Object(ObjId(idx)) => {
+                #[allow(irrefutable_let_patterns)]
+                // TODO: remove the `allow` attr when ObjData more than one.
+                if let ObjData::String(_) = heap.get(*idx) {
+                    return true;
+                };
+                false
+            }
+            _ => false,
+        }
     }
 
     /// Return true if the value is `Value::Bool` else false.
@@ -95,7 +136,8 @@ impl Value {
         match self {
             Value::Nil => false,
             Value::Bool(b) => *b,
-            Value::Number(_) => true,
+            Value::Number(n) => *n != 0.0,
+            Value::Object(_) => true,
         }
     }
 
@@ -105,15 +147,30 @@ impl Value {
             Value::Nil => true,
             Value::Bool(b) => !b,
             Value::Number(n) => *n == 0.0,
+            Value::Object(_) => false,
         }
     }
 
-    /// Print the inner field value to the console.
-    pub fn print(&self) {
+    /// Convert `Value` into `String`.
+    ///
+    /// `Heap` is needed to get real value of object such as string.
+    pub fn to_string(&self, heap: &Heap) -> String {
         match self {
-            Value::Nil => println!("nil"),
-            Value::Bool(b) => println!("{}", b),
-            Value::Number(n) => println!("{}", n),
+            Value::Nil => "nil".to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Object(ObjId(idx)) => heap.get(*idx).to_string(),
+        }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Number(n) => write!(f, "{}", n),
+            Value::Object(obj) => write!(f, "<obj {}>", obj.0),
         }
     }
 }

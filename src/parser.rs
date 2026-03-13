@@ -1,11 +1,13 @@
 use crate::{
     chunk::{Chunk, IntoU8, OpCode, Value},
     common::disassemble,
+    heap::Heap,
+    object::{ObjData, ObjId, ObjString},
     tokenizer::{Token, TokenType, Tokenizer},
 };
 
 /// Function pointer type for prefix/infix parse functions.
-type ParseFn<'a> = fn(&mut Parser<'a>);
+type ParseFn<'src, 'heap> = fn(&mut Parser<'src, 'heap>);
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub enum Precedence {
@@ -44,16 +46,16 @@ impl Precedence {
     }
 }
 
-pub struct ParseRule<'a> {
-    pub prefix: Option<ParseFn<'a>>,
-    pub infix: Option<ParseFn<'a>>,
+pub struct ParseRule<'src, 'heap> {
+    pub prefix: Option<ParseFn<'src, 'heap>>,
+    pub infix: Option<ParseFn<'src, 'heap>>,
     pub precedence: Precedence,
 }
 
-impl<'a> ParseRule<'a> {
+impl<'src, 'heap> ParseRule<'src, 'heap> {
     fn new(
-        prefix: Option<ParseFn<'a>>,
-        infix: Option<ParseFn<'a>>,
+        prefix: Option<ParseFn<'src, 'heap>>,
+        infix: Option<ParseFn<'src, 'heap>>,
         precedence: Precedence,
     ) -> Self {
         Self {
@@ -66,9 +68,9 @@ impl<'a> ParseRule<'a> {
 
 /// Returns the parse rule for the given token type.
 /// Using a `match` instead of a static array avoids lifetime and fn-pointer coercion
-/// issues that arise from `Parser<'a>` carrying a lifetime parameter.
+/// issues that arise from `Parser<'src>` carrying a lifetime parameter.
 #[rustfmt::skip]
-pub fn get_rule<'a>(tt: TokenType) -> ParseRule<'a> {
+pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
     match tt {
         TokenType::LeftParen    => ParseRule::new(Some(Parser::grouping), None,                 Precedence::None),
         TokenType::RightParen   => ParseRule::new(None,                   None,                 Precedence::None),
@@ -89,7 +91,7 @@ pub fn get_rule<'a>(tt: TokenType) -> ParseRule<'a> {
         TokenType::Less         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Greater      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Equal        => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::String       => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::String       => ParseRule::new(Some(Parser::string),  None,                 Precedence::None),
         TokenType::Identifier   => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
         TokenType::And          => ParseRule::new(None,                   None,                 Precedence::None),
@@ -117,8 +119,9 @@ pub enum CompileError {
     SyntaxError,
 }
 
-pub struct Parser<'a> {
-    tokenizer: Tokenizer<'a>,
+pub struct Parser<'src, 'heap> {
+    tokenizer: Tokenizer<'src>,
+    heap: &'heap mut Heap,
     /// The container to store byte code when compiling.
     pub chunk: Chunk,
     /// Why we need a prev and cur token? Why only two tokens?
@@ -128,10 +131,11 @@ pub struct Parser<'a> {
     panic_mode: bool,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(tokenizer: Tokenizer<'a>) -> Self {
+impl<'src, 'heap> Parser<'src, 'heap> {
+    pub fn new(tokenizer: Tokenizer<'src>, heap: &'heap mut Heap) -> Self {
         Self {
             tokenizer,
+            heap,
             chunk: Chunk::new(),
             prev: Token::default(),
             cur: Token::default(),
@@ -233,7 +237,7 @@ impl<'a> Parser<'a> {
     pub fn end_compile(&mut self) {
         self.emit_return();
         if !self.had_error {
-            disassemble(&self.chunk, "code");
+            disassemble(&self.chunk, self.heap, "code");
         }
     }
 
@@ -258,13 +262,22 @@ impl<'a> Parser<'a> {
     /// The literal handling unit of Pratt parser.
     pub fn literal(&mut self) {
         match self.prev.token_type {
-            TokenType::True  => self.emit_byte(OpCode::True, self.prev.line),
-            TokenType::False => self.emit_byte(OpCode::False, self.prev.line),
-            TokenType::Nil   => self.emit_byte(OpCode::Nil, self.prev.line),
+            TokenType::True   => self.emit_byte(OpCode::True, self.prev.line),
+            TokenType::False  => self.emit_byte(OpCode::False, self.prev.line),
+            TokenType::Nil    => self.emit_byte(OpCode::Nil, self.prev.line),
             _ => {
                 // Unreachable
             }
         }
+    }
+
+    /// The string handling unit of Pratt parser.
+    pub fn string(&mut self) {
+        let slice =
+            &self.tokenizer.source()[self.prev.start + 1..self.prev.start + self.prev.len - 1];
+        let s = std::str::from_utf8(slice).unwrap();
+        let idx = self.heap.write_string(s);
+        self.emit_constant(Value::Object(ObjId(idx)), self.prev.line);
     }
 
     /// The unary operator handling unit of Pratt parser.

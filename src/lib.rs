@@ -3,7 +3,8 @@ pub mod chunk;
 #[cfg(debug_assertions)]
 pub mod common;
 pub mod file;
-pub mod macros;
+pub mod heap;
+pub mod object;
 pub mod parser;
 pub mod tokenizer;
 pub mod vm;

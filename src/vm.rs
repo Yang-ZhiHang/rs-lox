@@ -1,8 +1,39 @@
 /// vm.rs: We call this LVM (Lox Virtual Machine).
 use crate::{
-    binary_op,
     chunk::{Chunk, OpCode, Value},
+    heap::Heap,
+    object::ObjId,
 };
+
+macro_rules! binary_op {
+    ($vm:expr, number, $op:tt) => {{
+        // Pop b, then mutate a in-place at the new stack top.
+        // This avoids a redundant pop+push pair compared to the naive approach.
+        let b = $vm.pop();
+        let a = $vm.stack_top_mut();
+        match (a.as_number_mut(), b.as_number()) {
+            (Ok(a), Ok(b)) => {
+                #[allow(clippy::assign_op_pattern)]
+                { *a = *a $op b; }
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("{}", e);
+                return InterpretResult::RuntimeError;
+            }
+        }
+    }};
+    ($vm:expr, bool, $op:tt) => {{
+        let b = $vm.pop();
+        let a = $vm.pop();
+        match (a.as_number(), b.as_number()) {
+            (Ok(a), Ok(b)) => $vm.push(Value::Bool(a $op b)),
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("{}", e);
+                return InterpretResult::RuntimeError;
+            }
+        }
+    }};
+}
 
 const STACK_SIZE: usize = 256;
 
@@ -13,15 +44,14 @@ pub enum InterpretResult {
 }
 
 pub struct VM {
-    /// We don't use chunk as member of vm in rust to avoid series of problems cause
-    /// by `Option`.
-    // chunk: Option<Chunk>
+    /// The heap that stores objects (dynamic length).
+    pub heap: Heap,
     /// Program counter, use to represent where has the code been executed.
     /// TODO: Is pointer better than counter in rust?
     pc: usize,
     /// The stack to stored temporary value in expression.
     /// TODO: wheater to make it dynamic vector or just static?
-    stack: Vec<Value>,
+    stack: [Value; STACK_SIZE],
     /// The index of next element.
     stack_top: usize,
 }
@@ -37,8 +67,9 @@ impl VM {
     /// chunk should be pass in when we call `interpret` function.
     pub fn new() -> Self {
         Self {
+            heap: Heap::new(),
             pc: 0,
-            stack: vec![Value::Nil; STACK_SIZE],
+            stack: [Value::Nil; STACK_SIZE],
             stack_top: 0,
         }
     }
@@ -62,7 +93,7 @@ impl VM {
                     }
                     OpCode::Return => {
                         let val = self.pop();
-                        val.print();
+                        println!("{}", val.to_string(&self.heap));
                     }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
@@ -74,7 +105,21 @@ impl VM {
                             }
                         }
                     }
-                    OpCode::Add => binary_op!(self, number, +),
+                    OpCode::Add => {
+                        let b = self.pop();
+                        let a = self.pop();
+                        if let (Ok(a), Ok(b)) = (a.as_string(&self.heap), b.as_string(&self.heap)) {
+                            self.concatenate(&a, &b);
+                        } else if let (Ok(a), Ok(b)) = (a.as_number(), b.as_number()) {
+                            self.push(Value::Number(a + b));
+                        } else {
+                            self.runtime_error(
+                                chunk,
+                                "Operands must be two numbers or two strings.",
+                            );
+                            return InterpretResult::RuntimeError;
+                        }
+                    }
                     OpCode::Subtract => binary_op!(self, number, -),
                     OpCode::Multiply => binary_op!(self, number, *),
                     OpCode::Divide => binary_op!(self, number, /),
@@ -119,12 +164,18 @@ impl VM {
 
     /// Push a value to the stack of vm.
     pub fn push(&mut self, value: Value) {
+        if self.stack_top == STACK_SIZE {
+            panic!("Stack overflow!");
+        }
         self.stack[self.stack_top] = value;
         self.stack_top += 1;
     }
 
     /// Pop a value from the stack of vm.
     pub fn pop(&mut self) -> Value {
+        if self.stack_top == 0 {
+            panic!("Empty stack cannot be returned!");
+        }
         self.stack_top -= 1;
         self.stack[self.stack_top]
     }
@@ -149,7 +200,14 @@ impl VM {
 
     /// Reset the stack of vm.
     pub fn reset_stack(&mut self) {
-        self.stack = vec![Value::Nil; STACK_SIZE];
+        self.stack = [Value::Nil; STACK_SIZE];
         self.stack_top = 0;
+    }
+
+    /// Concatenate two string slices `a`, `b` and push to the stack.
+    pub fn concatenate(&mut self, a: &str, b: &str) {
+        let s = &format!("{}{}", a, b);
+        let idx = self.heap.write_string(s);
+        self.push(Value::Object(ObjId(idx)));
     }
 }

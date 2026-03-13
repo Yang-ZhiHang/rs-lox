@@ -384,7 +384,19 @@ impl<'a> Tokenizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_tokenizer;
+    
+    macro_rules! test_tokenizer {
+        ($name:ident, $cases:expr) => {
+            #[test]
+            fn $name() {
+                for (src, expected) in $cases {
+                    let mut tokenizer = Tokenizer::new(src);
+                    let tokens = tokenizer.scan_tokens();
+                    assert_eq!(token_types(&tokens), expected);
+                }
+            }
+        };
+    }
 
     /// Extract token types from token list.
     fn token_types(tokens: &[Token]) -> Vec<TokenType> {

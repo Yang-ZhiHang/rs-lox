@@ -49,7 +49,7 @@ impl IntoU8 for usize {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Value {
     Nil,
     Bool(bool),

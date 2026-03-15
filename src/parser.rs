@@ -268,7 +268,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             TokenType::False  => self.emit_byte(OpCode::False, self.prev.line),
             TokenType::Nil    => self.emit_byte(OpCode::Nil, self.prev.line),
             _ => {
-                // Unreachable
+                unreachable!()
             }
         }
     }

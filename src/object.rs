@@ -18,10 +18,11 @@ impl Display for ObjData {
             ObjData::String(obj) => {
                 let s = obj.value.as_str();
                 write!(f, "{}", s)
-            } // _ => {
-              //     // Unreachable temporarily
-              //     write!(f, "To be implemented.")
-              // }
+            }
+            #[allow(unreachable_patterns)]
+            _ => {
+                unreachable!()
+            }
         }
     }
 }

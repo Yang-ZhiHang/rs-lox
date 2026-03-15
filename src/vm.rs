@@ -2,7 +2,8 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
     heap::Heap,
-    object::ObjId,
+    object::{ObjData, ObjId},
+    table::Table,
 };
 
 macro_rules! binary_op {
@@ -54,6 +55,8 @@ pub struct VM {
     stack: [Value; STACK_SIZE],
     /// The index of next element.
     stack_top: usize,
+    /// The hash table to store identifier.
+    strings: Table,
 }
 
 impl Default for VM {
@@ -71,6 +74,7 @@ impl VM {
             pc: 0,
             stack: [Value::Nil; STACK_SIZE],
             stack_top: 0,
+            strings: Table::new(),
         }
     }
 
@@ -91,9 +95,44 @@ impl VM {
                         let value = Self::read_constant(chunk, &mut self.pc);
                         self.push(value);
                     }
-                    OpCode::Return => {
+                    OpCode::Print => {
                         let val = self.pop();
                         println!("{}", val.to_string(&self.heap));
+                    }
+                    OpCode::Return => {
+                        return InterpretResult::Ok;
+                    }
+                    OpCode::Pop => {
+                        self.pop();
+                    }
+                    OpCode::DefineGlobal => {
+                        if let Value::Object(ObjId(obj_idx)) =
+                            Self::read_constant(chunk, &mut self.pc)
+                        {
+                            #[allow(irrefutable_let_patterns)]
+                            if let ObjData::String(s) = self.heap.get(obj_idx) {
+                                self.strings.set(s.clone(), self.peek(0));
+                            }
+                        }
+                    }
+                    OpCode::GetGlobal => {
+                        if let Value::Object(ObjId(obj_idx)) =
+                            Self::read_constant(chunk, &mut self.pc)
+                        {
+                            #[allow(irrefutable_let_patterns)]
+                            if let ObjData::String(obj_string) = self.heap.get(obj_idx) {
+                                match self.strings.get(obj_string) {
+                                    Some(e) => {
+                                        let v = e.v;
+                                        self.push(v);
+                                    }
+                                    None => {
+                                        self.runtime_error(chunk, "Undefined variable.");
+                                        return InterpretResult::RuntimeError;
+                                    }
+                                }
+                            }
+                        }
                     }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
@@ -140,7 +179,7 @@ impl VM {
                 },
                 None => {
                     self.runtime_error(chunk, &format!("Unknown opcode: {}", opcode));
-                    return InterpretResult::CompileError;
+                    return InterpretResult::RuntimeError;
                 }
             }
         }

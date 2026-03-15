@@ -11,6 +11,10 @@ use crate::{
 #[repr(u8)]
 pub enum OpCode {
     Return,
+    Print,
+    Pop,
+    DefineGlobal,
+    GetGlobal,
     /// Literal
     // There is still one byte of space after `OpConstant` for storing the constant index.
     Constant,
@@ -79,7 +83,7 @@ impl Value {
         }
     }
 
-    /// Return a copy of `String` if the `Value::Object` is `ObjString` 
+    /// Return a copy of `String` if the `Value::Object` is `ObjString`
     /// else error.
     pub fn as_string(&self, heap: &Heap) -> Result<String, &'static str> {
         if let Value::Object(ObjId(idx)) = self {
@@ -248,8 +252,8 @@ impl Chunk {
 
     /// Write a constant value to the constant area and return the value index
     /// in the constant area.
-    pub fn write_constant(&mut self, value: Value) -> usize {
-        self.constants.push(value);
+    pub fn write_constant(&mut self, v: Value) -> usize {
+        self.constants.push(v);
         self.constants.len() - 1
     }
 }

@@ -52,7 +52,9 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
     let byte = chunk.code()[offset];
     match OpCode::from_repr(byte) {
         Some(opcode) => match opcode {
-            OpCode::Constant => constant_instruction(chunk, heap, offset, opcode),
+            OpCode::Constant | OpCode::DefineGlobal | OpCode::GetGlobal => {
+                constant_instruction(chunk, heap, offset, opcode)
+            }
             _ => simple_instruction(chunk, offset, opcode),
         },
         None => {

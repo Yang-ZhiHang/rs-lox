@@ -374,7 +374,9 @@ impl<'a> Tokenizer<'a> {
         pattern: &str,
         tt: TokenType,
     ) -> Token {
-        if &self.src[self.start + start..self.start + start + len] == pattern.as_bytes() {
+        if self.start + start + len < self.src.len()
+            && &self.src[self.start + start..self.start + start + len] == pattern.as_bytes()
+        {
             self.current = self.start + start + len;
             self.make_token(tt)
         } else {

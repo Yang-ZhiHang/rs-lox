@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Function pointer type for prefix/infix parse functions.
-type ParseFn<'src, 'heap> = fn(&mut Parser<'src, 'heap>);
+type ParseFn<'src, 'heap> = fn(&mut Parser<'src, 'heap>, bool);
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub enum Precedence {
@@ -92,8 +92,8 @@ pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
         TokenType::Less         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Greater      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Equal        => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::String       => ParseRule::new(Some(Parser::string),  None,                 Precedence::None),
-        TokenType::Identifier   => ParseRule::new(Some(Parser::variable),                   None,                 Precedence::None),
+        TokenType::String       => ParseRule::new(Some(Parser::string),   None,                 Precedence::None),
+        TokenType::Identifier   => ParseRule::new(Some(Parser::variable), None,                 Precedence::None),
         TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
         TokenType::And          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Class        => ParseRule::new(None,                   None,                 Precedence::None),
@@ -248,11 +248,11 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         if self.next(TokenType::Equal) {
             // 3. parse expression
             self.expression();
-            // 4. parse end ';'
-            self.consume(TokenType::Semicolon, "Expected ';' of expression");
         } else {
             self.emit_byte(OpCode::Nil, self.cur.line);
         }
+        // 4. parse end ';'
+        self.consume(TokenType::Semicolon, "Expected ';' of expression");
         self.define_variable(global);
     }
 
@@ -358,7 +358,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// The unary operator handling unit of Pratt parser.
-    pub fn unary(&mut self) {
+    pub fn unary(&mut self, _assignable: bool) {
         let tt = self.prev.token_type;
         // Save the operator's line before expression() advances `prev`
         // to the operand, which would cause emit_byte to record the wrong
@@ -379,7 +379,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// The binary operator handling unit of Pratt parser.
-    pub fn binary(&mut self) {
+    pub fn binary(&mut self, _assignable: bool) {
         let tt = self.prev.token_type;
         // Save the operator's line number before `parse_precedence` advances `prev`. This ensures the emitted bytecode
         // has the correct line number for the operator, even if the expression spans multiple lines.
@@ -404,7 +404,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// The number handling unit of Pratt parser.
-    pub fn number(&mut self) {
+    pub fn number(&mut self, _assignable: bool) {
         let source = self.tokenizer.source();
         let slice = &source[self.prev.start..self.prev.start + self.prev.len];
         let val: f64 = std::str::from_utf8(slice)
@@ -415,14 +415,14 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// The parenthesis handling unit of Pratt parser.
-    pub fn grouping(&mut self) {
+    pub fn grouping(&mut self, _assignable: bool) {
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' after expression.");
     }
 
     #[rustfmt::skip]
     /// The literal handling unit of Pratt parser.
-    pub fn literal(&mut self) {
+    pub fn literal(&mut self, _assignable: bool) {
         match self.prev.token_type {
             TokenType::True   => self.emit_byte(OpCode::True, self.prev.line),
             TokenType::False  => self.emit_byte(OpCode::False, self.prev.line),
@@ -434,7 +434,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// The string handling unit of Pratt parser.
-    pub fn string(&mut self) {
+    pub fn string(&mut self, _assignable: bool) {
         let slice =
             &self.tokenizer.source()[self.prev.start + 1..self.prev.start + self.prev.len - 1];
         let s = std::str::from_utf8(slice).unwrap();
@@ -443,24 +443,35 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// The variable handling unit of Pratt parser.
-    pub fn variable(&mut self) {
+    pub fn variable(&mut self, assignable: bool) {
         let idx = self.identifier_constant(self.prev);
-        self.emit_bytes(OpCode::GetGlobal, idx, self.prev.line);
+        if assignable && self.next(TokenType::Equal) {
+            self.expression();
+            self.emit_bytes(OpCode::SetGlobal, idx, self.prev.line);
+        } else {
+            self.emit_bytes(OpCode::GetGlobal, idx, self.prev.line);
+        }
     }
 
     /// Parse the precedence of previous token.
     pub fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         if let Some(prefix_rule) = get_rule(self.prev.token_type).prefix {
-            prefix_rule(self);
+            // Use assignable flag to skip assignment in `variable` unit.
+            let assignable = precedence <= Precedence::Assignment;
+            prefix_rule(self, assignable);
             while precedence <= get_rule(self.cur.token_type).precedence {
                 self.advance();
                 if let Some(infix_rule) = get_rule(self.prev.token_type).infix {
-                    infix_rule(self);
+                    infix_rule(self, assignable);
                 }
             }
+            // Essential error handling for '=' in expression.
+            if assignable && self.next(TokenType::Equal) {
+                self.error_at_current("Invalid assignment target.");
+            }
         } else {
-            println!("Expected expression.");
+            self.error_at_current("Expected expression.");
         }
     }
 

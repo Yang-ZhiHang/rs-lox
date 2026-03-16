@@ -13,8 +13,11 @@ pub enum OpCode {
     Return,
     Print,
     Pop,
+    // Define a global variable which doesn't exist.
     DefineGlobal,
     GetGlobal,
+    // Set a existed global variable.
+    SetGlobal,
     /// Literal
     // There is still one byte of space after `OpConstant` for storing the constant index.
     Constant,

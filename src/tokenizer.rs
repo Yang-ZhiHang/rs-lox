@@ -95,7 +95,6 @@ pub struct Tokenizer<'src> {
     /// The current line.
     line: usize,
     /// The current column.
-    /// TODO: complete the logic of computing column number.
     col: usize,
 }
 
@@ -108,7 +107,7 @@ impl<'src> Tokenizer<'src> {
             start: 0,
             current: 0,
             line: 1,
-            col: 0,
+            col: 1,
         }
     }
 
@@ -122,8 +121,6 @@ impl<'src> Tokenizer<'src> {
         self.start = self.current;
         // Return end of file token type if reach the end (Currently, we don't use `scan_tokens()`).
         if self.is_at_end() {
-            // Make `col` the last column.
-            self.col = self.current + 1;
             return self.make_token(TokenType::EOF);
         }
         let c = self.advance();
@@ -191,8 +188,7 @@ impl<'src> Tokenizer<'src> {
                     self.advance();
                 }
                 '\n' => {
-                    self.line += 1;
-                    self.col = 1;
+                    self.break_line();
                     self.advance();
                 }
                 '/' => {
@@ -205,6 +201,12 @@ impl<'src> Tokenizer<'src> {
                 _ => return,
             }
         }
+    }
+
+    pub fn break_line(&mut self) {
+        self.line += 1;
+        // The columns number will be increased in the coming `advance()`.
+        self.col = 0;
     }
 
     /// Scan the source code and return list of tokens.
@@ -227,13 +229,8 @@ impl<'src> Tokenizer<'src> {
     /// The information of `Token` (start index, length, line number) will be automatically
     /// supplied from tokenizer.
     pub fn make_token(&self, tt: TokenType) -> Token {
-        Token::new(
-            tt,
-            self.start,
-            self.current - self.start,
-            self.line,
-            self.col,
-        )
+        let len = self.current - self.start;
+        Token::new(tt, self.start, len, self.line, self.col - len)
     }
 
     /// Generate a error token with error message.
@@ -306,13 +303,13 @@ impl<'src> Tokenizer<'src> {
     pub fn string(&mut self) -> Token {
         while self.peek(0) != '"' && !self.is_at_end() {
             if self.peek(0) == '\n' {
-                self.line += 1
+                self.break_line();
             };
             self.advance();
         }
-        if self.is_at_end() {
-            return self.error_token("Unclosed string");
-        }
+        // if self.is_at_end() {
+        //     return self.error_token("Unclosed string");
+        // }
         // Consume the closing `"`.
         self.advance();
         self.make_token(TokenType::String)

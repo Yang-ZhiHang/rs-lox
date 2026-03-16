@@ -134,6 +134,25 @@ impl VM {
                             }
                         }
                     }
+                    OpCode::SetGlobal => {
+                        if let Value::Object(ObjId(obj_idx)) =
+                            Self::read_constant(chunk, &mut self.pc)
+                        {
+                            #[allow(irrefutable_let_patterns)]
+                            if let ObjData::String(obj_string) = self.heap.get(obj_idx) {
+                                let v = self.peek(0);
+                                match &mut self.strings.get_mut(obj_string) {
+                                    Some(e) => {
+                                        e.v = v;
+                                    }
+                                    None => {
+                                        self.runtime_error(chunk, "Undefined variable.");
+                                        return InterpretResult::RuntimeError;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
                         match val {
@@ -230,7 +249,7 @@ impl VM {
     pub fn peek(&self, n: usize) -> Value {
         self.stack[self.stack_top - 1 - n]
     }
-    
+
     /// Print runtime error to console output.
     pub fn runtime_error(&mut self, chunk: &Chunk, msg: &str) {
         let line = chunk.get_line(self.pc);

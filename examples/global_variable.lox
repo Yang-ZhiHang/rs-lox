@@ -1,0 +1,3 @@
+var beverage = "coffee";
+var breakfast = "beef with " + beverage;
+print breakfast;

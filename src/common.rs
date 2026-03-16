@@ -18,10 +18,10 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
     match val {
         Value::Object(ObjId(idx)) => {
-            println!("{} \"{}\"", opcode, heap.get(idx));
+            println!("{}\t\"{}\"", opcode, heap.get(idx));
         }
         _ => {
-            println!("{} {}", opcode, val);
+            println!("{}\t{}", opcode, val);
         }
     }
     offset + 2
@@ -30,8 +30,8 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
 /// Disassemble chunk.
 pub fn disassemble(chunk: &Chunk, heap: &Heap, name: &str) {
     // Print the name title so that we know which chunk we are looking.
-    println!("== {} ==", name);
-    println!("Offset Line Opcode");
+    println!("Disassemble '{}' result:", name);
+    println!("Offset\tLine\tOpcode");
     let mut offset = 0;
     // Execute each instruction (the size of instruction may be different).
     while offset < chunk.code().len() {
@@ -45,9 +45,9 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
     // fmt: 000000 0001 OpReturn
     if offset > 0 && chunk.get_line(offset) == chunk.get_line(offset - 1) {
         // Here we use `:>4` instead of `:04` because string "-" is not number.
-        print!("{:06} {:>4} ", offset, "-");
+        print!("{:06}\t{:>4}\t", offset, "-");
     } else {
-        print!("{:06} {:04} ", offset, chunk.get_line(offset));
+        print!("{:06}\t{:04}\t", offset, chunk.get_line(offset));
     }
     let byte = chunk.code()[offset];
     match OpCode::from_repr(byte) {

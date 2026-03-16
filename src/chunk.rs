@@ -193,7 +193,7 @@ pub struct Chunk {
     /// fmt: (line number, count)
     /// We use this format (RLE) instead of making line number to be index and count to be
     /// value, because we shouldn't store empty line.
-    line: Vec<(u16, u16)>,
+    line: Vec<(usize, usize)>,
 }
 
 impl Default for Chunk {
@@ -223,16 +223,16 @@ impl Chunk {
     }
 
     /// Getter of member `line`.
-    pub fn line(&self) -> &[(u16, u16)] {
+    pub fn line(&self) -> &[(usize, usize)] {
         &self.line
     }
 
     /// Get the line number of opcode in given offset.
-    pub fn get_line(&self, offset: usize) -> u16 {
+    pub fn get_line(&self, offset: usize) -> usize {
         let mut acc = 0;
         for pair in self.line.iter() {
             acc += pair.1;
-            if acc > offset as u16 {
+            if acc > offset {
                 return pair.0;
             }
         }
@@ -240,7 +240,7 @@ impl Chunk {
     }
 
     /// Write a byte to the chunk.
-    pub fn write(&mut self, byte: impl IntoU8, line: u16) {
+    pub fn write(&mut self, byte: impl IntoU8, line: usize) {
         self.code.push(byte.into_u8());
         match self.line.last_mut() {
             // Increase line number count if the line number already exists.

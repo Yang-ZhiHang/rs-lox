@@ -230,10 +230,11 @@ impl VM {
     pub fn peek(&self, n: usize) -> Value {
         self.stack[self.stack_top - 1 - n]
     }
-
+    
+    /// Print runtime error to console output.
     pub fn runtime_error(&mut self, chunk: &Chunk, msg: &str) {
         let line = chunk.get_line(self.pc);
-        println!("{}:{}: {}", line, self.pc, msg);
+        println!("line {}: Runtime error: {}", line, msg);
         self.reset_stack();
     }
 

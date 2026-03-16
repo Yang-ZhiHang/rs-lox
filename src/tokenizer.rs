@@ -3,8 +3,8 @@ pub struct Token {
     pub token_type: TokenType,
     pub start: usize,
     pub len: usize,
-    pub line: u16,
-    pub col: u16,
+    pub line: usize,
+    pub col: usize,
 }
 
 impl Default for Token {
@@ -20,7 +20,7 @@ impl Default for Token {
 }
 
 impl Token {
-    pub fn new(tt: TokenType, start: usize, len: usize, line: u16, col: u16) -> Self {
+    pub fn new(tt: TokenType, start: usize, len: usize, line: usize, col: usize) -> Self {
         Self {
             token_type: tt,
             start,
@@ -82,9 +82,9 @@ pub enum TokenType {
 }
 
 /// The lifetime of `source` as same as the tokenizer.
-pub struct Tokenizer<'a> {
+pub struct Tokenizer<'src> {
     /// The source code string.
-    src: &'a [u8],
+    src: &'src [u8],
     /// The array that stores each token in `source`.
     /// TODO: unused tokens and scan_tokens.
     tokens: Vec<Token>,
@@ -93,15 +93,15 @@ pub struct Tokenizer<'a> {
     /// The index of ready character.
     current: usize,
     /// The current line.
-    line: u16,
+    line: usize,
     /// The current column.
     /// TODO: complete the logic of computing column number.
-    col: u16,
+    col: usize,
 }
 
-impl<'a> Tokenizer<'a> {
+impl<'src> Tokenizer<'src> {
     /// Create a tokenizer in initial state.
-    pub fn new(source: &'a str) -> Self {
+    pub fn new(source: &'src str) -> Self {
         Self {
             src: source.as_bytes(),
             tokens: vec![],
@@ -113,7 +113,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Getter of member `source`.
-    pub fn source(&self) -> &'a [u8] {
+    pub fn source(&self) -> &'src [u8] {
         self.src
     }
 
@@ -123,7 +123,7 @@ impl<'a> Tokenizer<'a> {
         // Return end of file token type if reach the end (Currently, we don't use `scan_tokens()`).
         if self.is_at_end() {
             // Make `col` the last column.
-            self.col = (self.current + 1) as u16;
+            self.col = self.current + 1;
             return self.make_token(TokenType::EOF);
         }
         let c = self.advance();
@@ -336,9 +336,19 @@ impl<'a> Tokenizer<'a> {
         self.make_token(TokenType::Number)
     }
 
+    /// Returning the identifier token.
+    ///
     /// Call this function when scanning meets alpha.
-    /// Judging weather the identifier is keyword.
     pub fn identifier(&mut self) -> Token {
+        while self.peek(0).is_alphabetic() || self.peek(0).is_numeric() {
+            self.advance();
+        }
+        let tt = self.identifier_type();
+        self.make_token(tt)
+    }
+
+    /// Judging the identifier token type according to the current token.
+    pub fn identifier_type(&mut self) -> TokenType {
         match self.src[self.start] as char {
             'a' => self.check_keyword(1, 2, "nd", TokenType::And),
             'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
@@ -347,7 +357,7 @@ impl<'a> Tokenizer<'a> {
                 'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                 'o' => self.check_keyword(2, 1, "r", TokenType::For),
                 'u' => self.check_keyword(2, 1, "n", TokenType::Fun),
-                _ => self.make_token(TokenType::Identifier),
+                _ => TokenType::Identifier,
             },
             'i' => self.check_keyword(1, 1, "f", TokenType::If),
             'n' => self.check_keyword(1, 2, "il", TokenType::Nil),
@@ -358,11 +368,11 @@ impl<'a> Tokenizer<'a> {
             't' => match self.src[self.start + 1] as char {
                 'h' => self.check_keyword(2, 2, "is", TokenType::This),
                 'r' => self.check_keyword(2, 2, "ue", TokenType::True),
-                _ => self.make_token(TokenType::Identifier),
+                _ => TokenType::Identifier,
             },
             'v' => self.check_keyword(1, 2, "ar", TokenType::Var),
             'w' => self.check_keyword(1, 4, "hile", TokenType::While),
-            _ => self.make_token(TokenType::Identifier),
+            _ => TokenType::Identifier,
         }
     }
 
@@ -373,14 +383,14 @@ impl<'a> Tokenizer<'a> {
         len: usize,
         pattern: &str,
         tt: TokenType,
-    ) -> Token {
+    ) -> TokenType {
         if self.start + start + len < self.src.len()
             && &self.src[self.start + start..self.start + start + len] == pattern.as_bytes()
         {
             self.current = self.start + start + len;
-            self.make_token(tt)
+            tt
         } else {
-            self.make_token(TokenType::Identifier)
+            TokenType::Identifier
         }
     }
 }

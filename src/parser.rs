@@ -174,8 +174,6 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// Compile source code into byte code.
     pub fn compile(mut self) -> Result<Chunk, CompileError> {
         self.advance();
-        // self.expression();
-        // self.consume(TokenType::EOF, "Expected end of expression.");
         while !self.next(TokenType::EOF) {
             self.declaration();
         }
@@ -312,19 +310,20 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         }
     }
 
-    pub fn emit_byte(&mut self, byte: impl IntoU8, line: u16) {
+    /// Write a byte data to the chunk.
+    pub fn emit_byte(&mut self, byte: impl IntoU8, line: usize) {
         self.chunk.write(byte, line);
     }
 
     /// Write operation code and constant value index (which from constant area) to the chunk.
-    pub fn emit_constant(&mut self, constant: Value, line: u16) {
+    pub fn emit_constant(&mut self, constant: Value, line: usize) {
         let idx = self.chunk.write_constant(constant);
         self.emit_bytes(OpCode::Constant, idx, line);
     }
 
     /// Write two bytes to the chunk.
     /// Used to write opcode with it's immediate operand.
-    pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8, line: u16) {
+    pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8, line: usize) {
         self.emit_byte(byte1, line);
         self.emit_byte(byte2, line);
     }
@@ -382,9 +381,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// The binary operator handling unit of Pratt parser.
     pub fn binary(&mut self) {
         let tt = self.prev.token_type;
-        // Save the operator's line number before `parse_precedence` advances `prev`.
-        // This ensures the emitted bytecode has the correct line number for the oper
-        // -ator, even if the expression spans multiple lines.
+        // Save the operator's line number before `parse_precedence` advances `prev`. This ensures the emitted bytecode
+        // has the correct line number for the operator, even if the expression spans multiple lines.
         let line = self.prev.line;
         let rule = get_rule(tt);
         self.parse_precedence(rule.precedence.next());

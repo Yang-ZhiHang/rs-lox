@@ -109,7 +109,7 @@ pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
         TokenType::True         => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
         TokenType::False        => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
         TokenType::Nil          => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
-        TokenType::Var          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Let          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::While        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Error(_)     => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::EOF          => ParseRule::new(None,                   None,                 Precedence::None),
@@ -229,7 +229,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     pub fn declaration(&mut self) {
-        if self.next(TokenType::Var) {
+        if self.next(TokenType::Let) {
             self.var_declaration();
         } else if self.next(TokenType::Fun) {
             self.fun_declaration();
@@ -296,7 +296,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             match self.cur.token_type {
                 TokenType::Class
                 | TokenType::Fun
-                | TokenType::Var
+                | TokenType::Let
                 | TokenType::For
                 | TokenType::If
                 | TokenType::While
@@ -338,7 +338,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.emit_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
-            disassemble(&self.chunk, self.heap, "code");
+            disassemble(&self.chunk, self.heap, "dev");
         }
     }
 

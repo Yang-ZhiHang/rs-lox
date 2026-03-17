@@ -74,7 +74,7 @@ pub enum TokenType {
     Super,
     This,
     True,
-    Var,
+    Let,
     While,
     // Others
     Error(&'static str),
@@ -357,6 +357,7 @@ impl<'src> Tokenizer<'src> {
                 _ => TokenType::Identifier,
             },
             'i' => self.check_keyword(1, 1, "f", TokenType::If),
+            'l' => self.check_keyword(1, 2, "et", TokenType::Let),
             'n' => self.check_keyword(1, 2, "il", TokenType::Nil),
             'o' => self.check_keyword(1, 1, "r", TokenType::Or),
             'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
@@ -367,7 +368,6 @@ impl<'src> Tokenizer<'src> {
                 'r' => self.check_keyword(2, 2, "ue", TokenType::True),
                 _ => TokenType::Identifier,
             },
-            'v' => self.check_keyword(1, 2, "ar", TokenType::Var),
             'w' => self.check_keyword(1, 4, "hile", TokenType::While),
             _ => TokenType::Identifier,
         }

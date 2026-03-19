@@ -23,7 +23,7 @@ impl EntryState {
 
 #[derive(Clone)]
 pub struct Entry {
-    /// TODO(String Interning): Maybe we can change `ObjString` to `ObjId` to save the memory.
+    /// Q(String Interning): Maybe we can change `ObjString` to `ObjId` to save the memory.
     pub k: ObjString,
     pub v: Value,
 }

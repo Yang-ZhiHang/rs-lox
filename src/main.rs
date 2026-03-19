@@ -26,7 +26,7 @@ pub fn repl(_vm: &mut VM) {
         print!(">>> ");
         match std::io::stdin().read_line(&mut line) {
             Ok(_) => {
-                todo!()
+                unimplemented!()
             }
             Err(error) => println!("Error reading input: {}", error),
         }

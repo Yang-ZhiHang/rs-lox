@@ -18,6 +18,8 @@ pub enum OpCode {
     GetGlobal,
     // Set a existed global variable.
     SetGlobal,
+    GetLocal,
+    SetLocal,
     /// Literal
     // There is still one byte of space after `OpConstant` for storing the constant index.
     Constant,

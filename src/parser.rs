@@ -7,6 +7,58 @@ use crate::{
     tokenizer::{Token, TokenType, Tokenizer},
 };
 
+#[allow(unused)]
+/// Local variable.
+pub struct Local {
+    token: Token,
+    /// The scope level of local variable.
+    ///
+    /// It will be `None` if hasn't been initialized yet.
+    depth: Option<usize>,
+    is_captured: bool,
+}
+
+impl Local {
+    pub fn new(token: Token, depth: Option<usize>, is_captured: bool) -> Self {
+        Self {
+            token,
+            depth,
+            is_captured,
+        }
+    }
+}
+
+pub const MAX_LOCAL_SIZE: usize = 256;
+
+/// The context for storing local variable, function, closure.
+pub struct Context {
+    /// Stack array stores local variables.
+    locals: [Option<Local>; MAX_LOCAL_SIZE],
+    /// Amount of local variables.
+    local_count: usize,
+    /// The depth of current code block.
+    scope_depth: usize,
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Context {
+    /// Create `Context` with empty local variable array.
+    ///
+    /// `scope_depth` defaults to 0.
+    pub fn new() -> Self {
+        Self {
+            locals: [const { None }; MAX_LOCAL_SIZE],
+            local_count: 0,
+            scope_depth: 0,
+        }
+    }
+}
+
 /// Function pointer type for prefix/infix parse functions.
 type ParseFn<'src, 'heap> = fn(&mut Parser<'src, 'heap>, bool);
 
@@ -42,11 +94,12 @@ impl Precedence {
             Self::Unary      => Self::Call,
             Self::Call       => Self::Primary,
             // Primary is already the highest, return self to avoid going out of bounds.
-            Self::Primary => Self::Primary,
+            Self::Primary    => Self::Primary,
         }
     }
 }
 
+/// The parse rule of Pratt parser.
 pub struct ParseRule<'src, 'heap> {
     pub prefix: Option<ParseFn<'src, 'heap>>,
     pub infix: Option<ParseFn<'src, 'heap>>,
@@ -128,8 +181,12 @@ pub struct Parser<'src, 'heap> {
     /// Why we need a prev and cur token? Why only two tokens?
     prev: Token,
     cur: Token,
+    /// Judge if there had error occurs.
     had_error: bool,
+    /// Set true to avoid error cascade.
     panic_mode: bool,
+    /// Context to store information of local variable, function and enclosure.
+    ctx: Context,
 }
 
 impl<'src, 'heap> Parser<'src, 'heap> {
@@ -142,6 +199,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             cur: Token::default(),
             had_error: false,
             panic_mode: false,
+            ctx: Context::new(),
         }
     }
 
@@ -219,9 +277,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         } else if let TokenType::Error(_) = token.token_type {
             // The error message of `TokenType::Error` is passed-in parameter `msg`.
         } else {
-            let token =
-                str::from_utf8(&self.tokenizer.source()[token.start..token.start + token.len])
-                    .unwrap();
+            let token = str::from_utf8(token.name(self.tokenizer.source())).unwrap();
             print!(" at '{}'", token);
         }
         println!(": {}", msg);
@@ -256,6 +312,27 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.define_variable(global);
     }
 
+    /// Declare a local variable. Return if current context is global.
+    pub fn declare_variable(&mut self) {
+        // We only declare local variable.
+        if self.ctx.scope_depth == 0 {
+            return;
+        }
+        self.add_local(self.prev);
+    }
+
+    /// Add a local variable to the local variable list.
+    pub fn add_local(&mut self, token: Token) {
+        // Temporarily set `is_captured` to false.
+        let local = Local::new(token, None, false);
+        let idx = self.ctx.local_count;
+        if idx >= MAX_LOCAL_SIZE {
+            self.error_at_current("Too many local variables.");
+        }
+        self.ctx.locals[idx] = Some(local);
+        self.ctx.local_count += 1;
+    }
+
     pub fn fun_declaration(&self) {
         unimplemented!()
     }
@@ -263,6 +340,11 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn statement(&mut self) {
         if self.next(TokenType::Print) {
             self.print_statement();
+        } else if self.next(TokenType::LeftBrace) {
+            // Blocks are a kind of statement.
+            self.begin_scope();
+            self.block();
+            self.end_scope();
         } else {
             self.expression_statement();
         }
@@ -282,13 +364,59 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.emit_byte(OpCode::Pop, self.cur.line);
     }
 
-    pub fn parse_variable(&mut self, msg: &str) -> usize {
-        self.consume(TokenType::Identifier, msg);
+    /// Uses after enter a new function scope.
+    ///
+    /// Call this function after consumed token `{`.
+    pub fn begin_scope(&mut self) {
+        self.ctx.scope_depth += 1;
+    }
+
+    /// Uses before leave a new function scope.
+    ///
+    /// Call this function after consumed token `}`.
+    pub fn end_scope(&mut self) {
+        self.ctx.scope_depth -= 1;
+        // Pop the local variable from current stack frame.
+        while self.ctx.local_count > 0
+            && self.ctx.locals[self.ctx.local_count - 1]
+                .as_ref()
+                // Value will not be `None` if index in range 0 to `local_count` - 1.
+                .unwrap()
+                .depth
+                // Entering the function `end_scope`, all local variable would already been initialized.
+                .unwrap()
+                > self.ctx.scope_depth
+        {
+            self.emit_byte(OpCode::Pop, self.cur.line);
+            self.ctx.local_count -= 1;
+        }
+    }
+
+    /// Uses in code block.
+    pub fn block(&mut self) {
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::EOF) {
+            self.declaration();
+        }
+        self.consume(TokenType::RightBrace, "Expect '}' after block.");
+    }
+
+    pub fn parse_variable(&mut self, err_msg: &str) -> usize {
+        self.consume(TokenType::Identifier, err_msg);
+        self.declare_variable();
+        // Avoid writing data into constant area of chunk if the identifier is local variable.
+        // Also avoided in following context: at `define_variable()`.
+        if self.ctx.scope_depth > 0 {
+            return 0;
+        }
         self.identifier_constant(self.prev)
     }
 
-    /// Advance to a identifier indicating an end after a panic error.
+    /// Advance to a identifier indicating an end after a panic error and set `panic_mode` to false.
+    ///
+    /// Call this function in panic mode to avoid error cascade between the location where the error
+    /// occurred and the end identifier.
     pub fn synchronize(&mut self) {
+        self.panic_mode = false;
         while !self.check(TokenType::EOF) {
             if self.prev.token_type == TokenType::Semicolon {
                 break;
@@ -346,7 +474,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     ///
     /// Return the index in constant area (Which stores the object index).
     pub fn identifier_constant(&mut self, t: Token) -> usize {
-        let slice = &self.tokenizer.source()[t.start..t.start + t.len];
+        let slice = t.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let obj_idx = self.heap.write_string(s);
         self.chunk.write_constant(Value::Object(ObjId(obj_idx)))
@@ -354,7 +482,22 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// Define a global variable
     pub fn define_variable(&mut self, global: impl IntoU8) {
+        // Avoid emit `DefineGlobal` into code area of chunk if the identifier is local variable.
+        // Also avoided in previous context (`var_declaration()`): at `parse_variable()`.
+        if self.ctx.scope_depth > 0 {
+            self.mark_initialized();
+            return;
+        }
         self.emit_bytes(OpCode::DefineGlobal, global, self.cur.line);
+    }
+
+    /// Initialize the scope level `depth` of local variable.
+    ///
+    /// This function should be called after an assignment.
+    pub fn mark_initialized(&mut self) {
+        let idx = self.ctx.local_count - 1;
+        let depth = self.ctx.scope_depth;
+        self.ctx.locals[idx].as_mut().unwrap().depth = Some(depth);
     }
 
     /// The unary operator handling unit of Pratt parser.
@@ -420,9 +563,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.consume(TokenType::RightParen, "Expected ')' after expression.");
     }
 
-    #[rustfmt::skip]
     /// The literal handling unit of Pratt parser.
     pub fn literal(&mut self, _assignable: bool) {
+        #[rustfmt::skip]
         match self.prev.token_type {
             TokenType::True   => self.emit_byte(OpCode::True, self.prev.line),
             TokenType::False  => self.emit_byte(OpCode::False, self.prev.line),
@@ -430,13 +573,12 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             _ => {
                 unreachable!()
             }
-        }
+        };
     }
 
     /// The string handling unit of Pratt parser.
     pub fn string(&mut self, _assignable: bool) {
-        let slice =
-            &self.tokenizer.source()[self.prev.start + 1..self.prev.start + self.prev.len - 1];
+        let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let idx = self.heap.write_string(s);
         self.emit_constant(Value::Object(ObjId(idx)), self.prev.line);
@@ -444,13 +586,54 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// The variable handling unit of Pratt parser.
     pub fn variable(&mut self, assignable: bool) {
-        let idx = self.identifier_constant(self.prev);
+        let token = self.prev;
+        let idx;
+        let (op_get, op_set) = match self.get_local_idx(&token) {
+            Some(local_idx) => {
+                idx = local_idx;
+                (OpCode::GetLocal, OpCode::SetLocal)
+            }
+            None => {
+                idx = self.identifier_constant(self.prev);
+                (OpCode::GetGlobal, OpCode::SetGlobal)
+            }
+        };
         if assignable && self.next(TokenType::Equal) {
             self.expression();
-            self.emit_bytes(OpCode::SetGlobal, idx, self.prev.line);
+            self.emit_bytes(op_set, idx, self.prev.line);
         } else {
-            self.emit_bytes(OpCode::GetGlobal, idx, self.prev.line);
+            self.emit_bytes(op_get, idx, self.prev.line);
         }
+    }
+
+    /// Get the local variable index according to token name.
+    ///
+    /// Returning the local idx in `Option` if exists else `None`.
+    pub fn get_local_idx(&mut self, token: &Token) -> Option<usize> {
+        if self.ctx.scope_depth == 0 {
+            return None;
+        }
+        for (i, v) in self.ctx.locals.iter().enumerate() {
+            if let Some(e) = v
+                && self.token_cmp(&e.token, token)
+            {
+                // Only higher level scope are available.
+                if let Some(depth) = e.depth
+                    && depth <= self.ctx.scope_depth
+                {
+                    return Some(i);
+                }
+                return None;
+            }
+        }
+        None
+    }
+
+    /// Compare if the name of two tokens are same.
+    ///
+    /// This comparison method is a byte by byte comparison which will sacrifice some performance.
+    pub fn token_cmp(&self, t1: &Token, t2: &Token) -> bool {
+        t1.name(self.tokenizer.source()) == t2.name(self.tokenizer.source())
     }
 
     /// Parse the precedence of previous token.

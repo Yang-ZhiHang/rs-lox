@@ -29,15 +29,21 @@ impl Token {
             col,
         }
     }
+
+    /// Return the name of token according to the given string slice.
+    pub fn name<'src>(&self, src: &'src [u8]) -> &'src [u8] {
+        let end = self.start + self.len;
+        &src[self.start..end]
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
     // Pair
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
+    LeftParen,  // '('
+    RightParen, // ')'
+    LeftBrace,  // '{'
+    RightBrace, // '}'
     // Single character
     Comma,
     Dot,
@@ -86,7 +92,7 @@ pub struct Tokenizer<'src> {
     /// The source code string.
     src: &'src [u8],
     /// The array that stores each token in `source`.
-    /// TODO: unused tokens and scan_tokens.
+    // This member is used in unittest.
     tokens: Vec<Token>,
     /// The start index of current token. (Index start from 1)
     start: usize,
@@ -307,12 +313,18 @@ impl<'src> Tokenizer<'src> {
             };
             self.advance();
         }
-        // if self.is_at_end() {
-        //     return self.error_token("Unclosed string");
-        // }
+        if self.is_at_end() {
+            return self.error_token("Unclosed string");
+        }
         // Consume the closing `"`.
         self.advance();
-        self.make_token(TokenType::String)
+        Token::new(
+            TokenType::String,
+            self.start + 1,
+            self.current - self.start - 2,
+            self.line,
+            self.col,
+        )
     }
 
     /// Call this function when scanning meets digit.

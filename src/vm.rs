@@ -48,10 +48,10 @@ pub struct VM {
     /// The heap that stores objects (dynamic length).
     pub heap: Heap,
     /// Program counter, use to represent where has the code been executed.
-    /// TODO: Is pointer better than counter in rust?
+    /// Q: Is pointer better than counter in rust?
     pc: usize,
     /// The stack to stored temporary value in expression.
-    /// TODO: wheater to make it dynamic vector or just static?
+    /// Q: wheater to make it dynamic vector or just static?
     stack: [Value; STACK_SIZE],
     /// The index of next element.
     stack_top: usize,
@@ -109,9 +109,10 @@ impl VM {
                         if let Value::Object(ObjId(obj_idx)) =
                             Self::read_constant(chunk, &mut self.pc)
                         {
+                            let v = self.pop();
                             #[allow(irrefutable_let_patterns)]
                             if let ObjData::String(s) = self.heap.get(obj_idx) {
-                                self.strings.set(s.clone(), self.peek(0));
+                                self.strings.set(s.clone(), v);
                             }
                         }
                     }
@@ -152,6 +153,14 @@ impl VM {
                                 }
                             }
                         }
+                    }
+                    OpCode::GetLocal => {
+                        let slot = Self::read_byte(chunk, &mut self.pc);
+                        self.push(self.stack[slot as usize]);
+                    }
+                    OpCode::SetLocal => {
+                        let slot = Self::read_byte(chunk, &mut self.pc);
+                        self.stack[slot as usize] = self.peek(0);
                     }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];

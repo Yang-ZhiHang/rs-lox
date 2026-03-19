@@ -7,13 +7,13 @@ use crate::{
     object::ObjId,
 };
 
-/// Just print the opcode name to the console.
+/// Just print the operation code name to the console.
 pub fn simple_instruction(_chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
     println!("{}", opcode);
     offset + 1
 }
 
-/// Print the constant opcode value to the console.
+/// Print the constant operation code with value to the console.
 pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: OpCode) -> usize {
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
     match val {
@@ -24,6 +24,13 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
             println!("{}\t{}", opcode, val);
         }
     }
+    offset + 2
+}
+
+/// Print operation code with index to the console.
+pub fn index_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
+    let idx = chunk.code()[offset + 1];
+    println!("{}\t<index {}>", opcode, idx);
     offset + 2
 }
 
@@ -52,9 +59,10 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
     let byte = chunk.code()[offset];
     match OpCode::from_repr(byte) {
         Some(opcode) => match opcode {
-            OpCode::Constant | OpCode::DefineGlobal | OpCode::GetGlobal => {
+            OpCode::Constant | OpCode::DefineGlobal | OpCode::GetGlobal | OpCode::SetGlobal => {
                 constant_instruction(chunk, heap, offset, opcode)
             }
+            OpCode::GetLocal | OpCode::SetLocal => index_instruction(chunk, offset, opcode),
             _ => simple_instruction(chunk, offset, opcode),
         },
         None => {

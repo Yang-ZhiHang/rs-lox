@@ -1,4 +1,4 @@
-use crate::{chunk::Value, object::ObjString};
+use crate::{chunk::Value, object::ObjId};
 
 const INIT_TABLE_SIZE: usize = 256;
 
@@ -23,33 +23,32 @@ impl EntryState {
 
 #[derive(Clone)]
 pub struct Entry {
-    /// Q(String Interning): Maybe we can change `ObjString` to `ObjId` to save the memory.
-    pub k: ObjString,
+    pub k: ObjId,
     pub v: Value,
 }
 
 impl Entry {
-    pub fn new(k: ObjString, v: Value) -> Self {
+    pub fn new(k: ObjId, v: Value) -> Self {
         Self { k, v }
     }
 }
 
 /// Hash table
 #[derive(Clone)]
-pub struct Table {
+pub struct HashTable {
     count: usize,
     capacity: usize,
     /// Use `Vec` to ensure the array could be expanded as we needed at runtime.
     values: Vec<EntryState>,
 }
 
-impl Default for Table {
+impl Default for HashTable {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Table {
+impl HashTable {
     /// Creates a empty hash table.
     pub fn new() -> Self {
         Self {
@@ -59,16 +58,12 @@ impl Table {
         }
     }
 
-    /// Find the index of given key `k` and return the index else return the first
-    /// empty index.
-    pub fn find_index(
-        table: &[EntryState],
-        k: &ObjString,
-        capacity: usize,
-    ) -> Result<usize, usize> {
+    /// Find the index of given key `k` and return the index else return the first empty index.
+    pub fn find_index(table: &[EntryState], k: &ObjId, capacity: usize) -> Result<usize, usize> {
         let mut idx = (k.hash % capacity as u64) as usize;
         loop {
             match &table[idx] {
+                // TODO: `e.k == *k` time complexity O(n), use string interning to make it O(1).
                 EntryState::Occupied(e) if e.k == *k => return Ok(idx),
                 EntryState::Occupied(_) | EntryState::Deleted => idx = (idx + 1) % capacity,
                 EntryState::Empty => return Err(idx),
@@ -77,7 +72,7 @@ impl Table {
     }
 
     /// Get a immutable reference of the value of the key `k`.
-    pub fn get(&self, k: &ObjString) -> Option<&Entry> {
+    pub fn get(&self, k: &ObjId) -> Option<&Entry> {
         match Self::find_index(&self.values, k, self.capacity) {
             Ok(idx) => match &self.values[idx] {
                 EntryState::Occupied(e) => Some(e),
@@ -90,7 +85,7 @@ impl Table {
     }
 
     /// Get a mutable reference of the value of the key `k`.
-    pub fn get_mut(&mut self, k: &ObjString) -> Option<&mut Entry> {
+    pub fn get_mut(&mut self, k: &ObjId) -> Option<&mut Entry> {
         match Self::find_index(&self.values, k, self.capacity) {
             Ok(idx) => match &mut self.values[idx] {
                 EntryState::Occupied(e) => Some(e),
@@ -103,7 +98,7 @@ impl Table {
     }
 
     /// Set the value of the key `k`.
-    pub fn set(&mut self, k: ObjString, v: Value) {
+    pub fn set(&mut self, k: ObjId, v: Value) {
         if let Some(e) = self.get_mut(&k) {
             e.v = v;
             return;
@@ -118,7 +113,7 @@ impl Table {
     }
 
     /// Delete the value of given key `k`.
-    pub fn del(&mut self, k: &ObjString) {
+    pub fn del(&mut self, k: &ObjId) {
         match Self::find_index(&self.values, k, self.capacity) {
             Ok(idx) => self.values[idx] = EntryState::Deleted,
             Err(_) => println!("The key {} not found.", k),
@@ -165,37 +160,41 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heap::Heap;
 
-    fn make_string(s: &str) -> ObjString {
-        ObjString::new(s)
+    fn make_obj_id(s: &str, heap: &mut Heap) -> ObjId {
+        let obj_idx = heap.write_string(s);
+        ObjId::new(obj_idx)
     }
 
     #[test]
     fn test_table_insert_and_get() {
-        let mut table = Table::new();
-        let k1 = make_string("hello");
+        let mut table = HashTable::new();
+        let mut heap = Heap::new();
+        let k1 = make_obj_id("hello", &mut heap);
         let v1 = Value::Number(42.0);
 
-        table.set(k1.clone(), v1);
+        table.set(k1, v1);
         assert_eq!(table.get(&k1).unwrap().v, v1);
         assert_eq!(table.count, 1);
 
-        // Test multiple insertions
-        table.set(make_string("world"), Value::Number(2.0));
+        // Multiple insertions
+        table.set(make_obj_id("world", &mut heap), Value::Number(2.0));
         assert_eq!(table.count, 2);
 
-        // Test nonexistent key
-        assert!(table.get(&make_string("nonexistent")).is_none());
+        // Nonexistent key
+        assert!(table.get(&make_obj_id("nonexistent", &mut heap)).is_none());
     }
 
     #[test]
     fn test_table_delete_and_tombstones() {
-        let mut table = Table::new();
-        let k1 = make_string("key1");
-        let k2 = make_string("key2");
+        let mut table = HashTable::new();
+        let mut heap = Heap::new();
+        let k1 = make_obj_id("key1", &mut heap);
+        let k2 = make_obj_id("key2", &mut heap);
 
-        table.set(k1.clone(), Value::Number(1.0));
-        table.set(k2.clone(), Value::Number(2.0));
+        table.set(k1, Value::Number(1.0));
+        table.set(k2, Value::Number(2.0));
         assert_eq!(table.count, 2);
 
         // Delete leaves tombstone, count unchanged
@@ -205,24 +204,25 @@ mod tests {
 
         // Delete nonexistent key
         let initial_count = table.count;
-        table.del(&make_string("nonexistent"));
+        table.del(&make_obj_id("nonexistent", &mut heap));
         assert_eq!(table.count, initial_count);
     }
 
     #[test]
     fn test_table_transfer_with_tombstones() {
-        let mut table = Table::new();
+        let mut table = HashTable::new();
+        let mut heap = Heap::new();
 
         // Insert entries
         for i in 0..5 {
             let key = format!("key{}", i);
-            table.set(make_string(&key), Value::Number(i as f64));
+            table.set(make_obj_id(&key, &mut heap), Value::Number(i as f64));
         }
         assert_eq!(table.count, 5);
 
         // Delete some entries
-        table.del(&make_string("key1"));
-        table.del(&make_string("key3"));
+        table.del(&make_obj_id("key1", &mut heap));
+        table.del(&make_obj_id("key3", &mut heap));
 
         // Tombstones don't reduce count in current implementation
         assert_eq!(table.count, 5);
@@ -235,48 +235,28 @@ mod tests {
         assert_eq!(table.count, 3);
 
         // Verify we still can get the non-deleted entries
-        assert!(table.get(&make_string("key0")).is_some());
-        assert!(table.get(&make_string("key1")).is_none());
-        assert!(table.get(&make_string("key2")).is_some());
-        assert!(table.get(&make_string("key3")).is_none());
-        assert!(table.get(&make_string("key4")).is_some());
+        assert!(table.get(&make_obj_id("key0", &mut heap)).is_some());
+        assert!(table.get(&make_obj_id("key1", &mut heap)).is_none());
+        assert!(table.get(&make_obj_id("key2", &mut heap)).is_some());
+        assert!(table.get(&make_obj_id("key3", &mut heap)).is_none());
+        assert!(table.get(&make_obj_id("key4", &mut heap)).is_some());
     }
 
     #[test]
-    fn test_string_interning_same_content() {
-        let mut table = Table::new();
+    fn test_multi_same_key() {
+        let mut table = HashTable::new();
+        let mut heap = Heap::new();
 
-        // Insert the same string content with different ObjString instances
-        let s1 = make_string("interned");
-        let v1 = Value::Number(1.0);
-        table.set(s1.clone(), v1);
+        // Insert multiple entries with same keys.
+        table.set(make_obj_id("key", &mut heap), Value::Number(1.0));
+        table.set(make_obj_id("key", &mut heap), Value::Number(2.0));
+        table.set(make_obj_id("key", &mut heap), Value::Number(3.0));
 
-        // Create another ObjString with the same content
-        let s2 = make_string("interned");
-
-        // The hashes should be the same (both map to same slot)
-        assert_eq!(s1.hash, s2.hash);
-
-        // We should be able to retrieve using the second string
-        let result = table.get(&s2);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().v, v1);
-    }
-
-    #[test]
-    fn test_string_interning_multiple_same_strings() {
-        let mut table = Table::new();
-
-        // Insert multiple entries with same-content keys
-        table.set(make_string("key"), Value::Number(1.0));
-        table.set(make_string("key"), Value::Number(2.0));
-        table.set(make_string("key"), Value::Number(3.0));
-
-        // Should only have 1 entry (updates, not new insertions)
+        // Should only have 1 entry.
         assert_eq!(table.count, 1);
 
-        // The value should be the last one inserted
-        let result = table.get(&make_string("key"));
+        // The value should be the last one inserted.
+        let result = table.get(&make_obj_id("key", &mut heap));
         assert!(result.is_some());
         assert_eq!(result.unwrap().v, Value::Number(3.0));
     }

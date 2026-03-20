@@ -4,7 +4,6 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
     heap::Heap,
-    object::ObjId,
 };
 
 /// Just print the operation code name to the console.
@@ -17,8 +16,8 @@ pub fn simple_instruction(_chunk: &Chunk, offset: usize, opcode: OpCode) -> usiz
 pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: OpCode) -> usize {
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
     match val {
-        Value::Object(ObjId(idx)) => {
-            println!("{}\t\"{}\"", opcode, heap.get(idx));
+        Value::Object(obj_id) => {
+            println!("{}\t\"{}\"", opcode, heap.get(obj_id.val));
         }
         _ => {
             println!("{}\t{}", opcode, val);

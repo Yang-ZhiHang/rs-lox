@@ -100,6 +100,8 @@ pub struct Tokenizer<'src> {
     current: usize,
     /// The current line.
     line: usize,
+    /// The start column number.
+    start_col: usize,
     /// The current column.
     col: usize,
 }
@@ -113,6 +115,7 @@ impl<'src> Tokenizer<'src> {
             start: 0,
             current: 0,
             line: 1,
+            start_col: 1,
             col: 1,
         }
     }
@@ -125,6 +128,7 @@ impl<'src> Tokenizer<'src> {
     /// Scan each character and return a token.
     pub fn scan_token(&mut self) -> Token {
         self.start = self.current;
+        self.start_col = self.col;
         // Return end of file token type if reach the end (Currently, we don't use `scan_tokens()`).
         if self.is_at_end() {
             return self.make_token(TokenType::EOF);
@@ -200,8 +204,6 @@ impl<'src> Tokenizer<'src> {
                 '/' => {
                     if self.peek(1) == '/' {
                         self.line_comment();
-                    } else {
-                        return;
                     }
                 }
                 _ => return,
@@ -220,6 +222,9 @@ impl<'src> Tokenizer<'src> {
         while !self.is_at_end() {
             self.skip_ignore_character();
             if self.is_at_end() {
+                self.start = self.current;
+                self.start_col = 1;
+                self.col = 1;
                 break;
             }
             let token = self.scan_token();
@@ -235,8 +240,13 @@ impl<'src> Tokenizer<'src> {
     /// The information of `Token` (start index, length, line number) will be automatically
     /// supplied from tokenizer.
     pub fn make_token(&self, tt: TokenType) -> Token {
-        let len = self.current - self.start;
-        Token::new(tt, self.start, len, self.line, self.col - len)
+        Token::new(
+            tt,
+            self.start,
+            self.current - self.start,
+            self.line,
+            self.start_col,
+        )
     }
 
     /// Generate a error token with error message.
@@ -263,17 +273,6 @@ impl<'src> Tokenizer<'src> {
         self.current += 1;
         self.col += 1;
         self.src[self.current - 1] as char
-    }
-
-    /// Add token to the token list.
-    pub fn add_token(&mut self, token: TokenType) {
-        self.tokens.push(Token::new(
-            token,
-            self.start,
-            self.current - self.start,
-            self.line,
-            self.col,
-        ));
     }
 
     /// Judge if the next token equals to variable `c`. If equals, `current` will increase.
@@ -463,7 +462,7 @@ mod tests {
             ),
             // String token.
             (
-                "\"Hello, world\n\"",
+                "\"Hello, world\"\n",
                 vec![TokenType::String, TokenType::EOF]
             ),
             // Comment should be ignored.

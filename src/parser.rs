@@ -477,7 +477,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let slice = t.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let obj_idx = self.heap.write_string(s);
-        self.chunk.write_constant(Value::Object(ObjId(obj_idx)))
+        self.chunk
+            .write_constant(Value::Object(ObjId::new(obj_idx)))
     }
 
     /// Define a global variable
@@ -580,8 +581,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn string(&mut self, _assignable: bool) {
         let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
-        let idx = self.heap.write_string(s);
-        self.emit_constant(Value::Object(ObjId(idx)), self.prev.line);
+        let obj_idx = self.heap.write_string(s);
+        self.emit_constant(Value::Object(ObjId::new(obj_idx)), self.prev.line);
     }
 
     /// The variable handling unit of Pratt parser.

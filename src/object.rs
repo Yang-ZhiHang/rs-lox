@@ -4,7 +4,27 @@ use std::{
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct ObjId(pub usize);
+pub struct ObjId {
+    pub val: usize,
+    pub hash: u64,
+}
+
+impl ObjId {
+    pub fn new(id: usize) -> Self {
+        let mut h = DefaultHasher::new();
+        id.hash(&mut h);
+        Self {
+            val: id,
+            hash: h.finish(),
+        }
+    }
+}
+
+impl Display for ObjId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.val)
+    }
+}
 
 pub enum ObjData {
     String(ObjString),
@@ -16,8 +36,7 @@ impl Display for ObjData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ObjData::String(obj) => {
-                let s = obj.value.as_str();
-                write!(f, "{}", s)
+                write!(f, "{}", obj)
             }
             #[allow(unreachable_patterns)]
             _ => {
@@ -27,11 +46,9 @@ impl Display for ObjData {
     }
 }
 
-#[derive(Hash, PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct ObjString {
     pub value: String,
-    /// Pre-store hash value to avoid runtime overhead.
-    pub hash: u64,
 }
 
 impl Display for ObjString {
@@ -43,11 +60,8 @@ impl Display for ObjString {
 impl ObjString {
     /// Allocates a new `ObjString`, coping the characters from `s`.
     pub fn new(s: &str) -> Self {
-        let mut h = DefaultHasher::new();
-        s.hash(&mut h);
         Self {
             value: String::from(s),
-            hash: h.finish(),
         }
     }
 }

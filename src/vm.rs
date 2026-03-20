@@ -1,9 +1,8 @@
-/// vm.rs: We call this LVM (Lox Virtual Machine).
 use crate::{
     chunk::{Chunk, OpCode, Value},
     heap::Heap,
-    object::{ObjData, ObjId},
-    table::Table,
+    object::ObjId,
+    table::HashTable,
 };
 
 macro_rules! binary_op {
@@ -56,7 +55,7 @@ pub struct VM {
     /// The index of next element.
     stack_top: usize,
     /// The hash table to store identifier.
-    strings: Table,
+    strings: HashTable,
 }
 
 impl Default for VM {
@@ -74,7 +73,7 @@ impl VM {
             pc: 0,
             stack: [Value::Nil; STACK_SIZE],
             stack_top: 0,
-            strings: Table::new(),
+            strings: HashTable::new(),
         }
     }
 
@@ -106,50 +105,35 @@ impl VM {
                         self.pop();
                     }
                     OpCode::DefineGlobal => {
-                        if let Value::Object(ObjId(obj_idx)) =
-                            Self::read_constant(chunk, &mut self.pc)
-                        {
+                        if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
                             let v = self.pop();
-                            #[allow(irrefutable_let_patterns)]
-                            if let ObjData::String(s) = self.heap.get(obj_idx) {
-                                self.strings.set(s.clone(), v);
-                            }
+                            self.strings.set(obj_id, v);
                         }
                     }
                     OpCode::GetGlobal => {
-                        if let Value::Object(ObjId(obj_idx)) =
-                            Self::read_constant(chunk, &mut self.pc)
-                        {
-                            #[allow(irrefutable_let_patterns)]
-                            if let ObjData::String(obj_string) = self.heap.get(obj_idx) {
-                                match self.strings.get(obj_string) {
-                                    Some(e) => {
-                                        let v = e.v;
-                                        self.push(v);
-                                    }
-                                    None => {
-                                        self.runtime_error(chunk, "Undefined variable.");
-                                        return InterpretResult::RuntimeError;
-                                    }
+                        if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
+                            match self.strings.get(&obj_id) {
+                                Some(e) => {
+                                    let v = e.v;
+                                    self.push(v);
+                                }
+                                None => {
+                                    self.runtime_error(chunk, "Undefined variable.");
+                                    return InterpretResult::RuntimeError;
                                 }
                             }
                         }
                     }
                     OpCode::SetGlobal => {
-                        if let Value::Object(ObjId(obj_idx)) =
-                            Self::read_constant(chunk, &mut self.pc)
-                        {
-                            #[allow(irrefutable_let_patterns)]
-                            if let ObjData::String(obj_string) = self.heap.get(obj_idx) {
-                                let v = self.peek(0);
-                                match &mut self.strings.get_mut(obj_string) {
-                                    Some(e) => {
-                                        e.v = v;
-                                    }
-                                    None => {
-                                        self.runtime_error(chunk, "Undefined variable.");
-                                        return InterpretResult::RuntimeError;
-                                    }
+                        if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
+                            let v = self.peek(0);
+                            match &mut self.strings.get_mut(&obj_id) {
+                                Some(e) => {
+                                    e.v = v;
+                                }
+                                None => {
+                                    self.runtime_error(chunk, "Undefined variable.");
+                                    return InterpretResult::RuntimeError;
                                 }
                             }
                         }
@@ -275,7 +259,7 @@ impl VM {
     /// Concatenate two string slices `a`, `b` and push to the stack.
     pub fn concatenate(&mut self, a: &str, b: &str) {
         let s = &format!("{}{}", a, b);
-        let idx = self.heap.write_string(s);
-        self.push(Value::Object(ObjId(idx)));
+        let obj_idx = self.heap.write_string(s);
+        self.push(Value::Object(ObjId::new(obj_idx)));
     }
 }

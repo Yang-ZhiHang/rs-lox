@@ -345,23 +345,51 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             self.begin_scope();
             self.block();
             self.end_scope();
+        } else if self.next(TokenType::If) {
+            self.if_statement();
         } else {
             self.expression_statement();
         }
     }
 
-    /// In print statement, we finally emit print opcode.
+    /// Parse a print statement, which finally emit print operation code.
     pub fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenType::Semicolon, "Expected ';' of expression.");
         self.emit_byte(OpCode::Print, self.cur.line);
     }
 
-    /// In expression statement, we finally emit a pop like rust.
+    /// Parse an expression statement which end with `;` character, we finally emit a pop to return a value.
     pub fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenType::Semicolon, "Expected ';' of expression.");
         self.emit_byte(OpCode::Pop, self.cur.line);
+    }
+
+    /// Parse an if statement.
+    pub fn if_statement(&mut self) {
+        // 1. parse condition
+        self.consume(TokenType::LeftParen, "Expected '(' of condition.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' of condition.");
+        // 2. parse code block
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.statement();
+        let else_jump = self.emit_jump(OpCode::Jump);
+        // Program will jump here if condition is false.
+        self.patch_jump(then_jump);
+        if self.next(TokenType::Else) {
+            self.statement();
+        }
+        // Program will execute statement and jump here if condition is true.
+        self.patch_jump(else_jump);
+    }
+
+    /// Re-write jump offset to given index in byte code chunk.
+    pub fn patch_jump(&mut self, idx: usize) {
+        let offset = self.chunk.code().len() - idx - 2;
+        self.chunk.code_mut()[idx] = (offset >> 8) as u8;
+        self.chunk.code_mut()[idx + 1] = offset as u8;
     }
 
     /// Uses after enter a new function scope.
@@ -443,12 +471,6 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.chunk.write(byte, line);
     }
 
-    /// Write operation code and constant value index (which from constant area) to the chunk.
-    pub fn emit_constant(&mut self, constant: Value, line: usize) {
-        let idx = self.chunk.write_constant(constant);
-        self.emit_bytes(OpCode::Constant, idx, line);
-    }
-
     /// Write two bytes to the chunk.
     /// Used to write opcode with it's immediate operand.
     pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8, line: usize) {
@@ -459,6 +481,22 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// Write return operation code to chunk.
     pub fn emit_return(&mut self) {
         self.emit_byte(OpCode::Return, self.cur.line);
+    }
+
+    /// Write operation code and constant value index (which from constant area) to the chunk.
+    pub fn emit_constant(&mut self, constant: Value, line: usize) {
+        let idx = self.chunk.write_constant(constant);
+        self.emit_bytes(OpCode::Constant, idx, line);
+    }
+
+    /// Write jump operation code.
+    ///
+    /// Returning the start index of jump offset (occupies two bytes).
+    pub fn emit_jump(&mut self, tt: OpCode) -> usize {
+        self.emit_byte(tt, self.prev.line);
+        self.emit_byte(0xff, self.prev.line);
+        self.emit_byte(0xff, self.prev.line);
+        self.chunk.code().len() - 2
     }
 
     /// Write return operation code to chunk.
@@ -659,7 +697,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         }
     }
 
-    /// Compile the previous token.
+    /// Compile an expression without end character `;`.
     pub fn expression(&mut self) {
         // Temporarily use assginment percedence to parse the whole expression.
         self.parse_precedence(Precedence::Assignment);

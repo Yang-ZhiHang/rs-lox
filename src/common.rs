@@ -33,6 +33,16 @@ pub fn index_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize 
     offset + 2
 }
 
+/// Print operation code with jump offset to the console.
+pub fn jump_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
+    let h = chunk.code()[offset + 1] as usize;
+    let l = chunk.code()[offset + 2] as usize;
+    let jump_offset = h << 8 | l;
+    // {:<8} to avoid the alignment problem of output information caused by overly short opcode characters like `Jump`.
+    println!("{:<8}\t<offset {}>", opcode, jump_offset);
+    offset + 3
+}
+
 /// Disassemble chunk.
 pub fn disassemble(chunk: &Chunk, heap: &Heap, name: &str) {
     // Print the name title so that we know which chunk we are looking.
@@ -61,6 +71,7 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
             OpCode::Constant | OpCode::DefineGlobal | OpCode::GetGlobal | OpCode::SetGlobal => {
                 constant_instruction(chunk, heap, offset, opcode)
             }
+            OpCode::JumpIfFalse | OpCode::Jump => jump_instruction(chunk, offset, opcode),
             OpCode::GetLocal | OpCode::SetLocal => index_instruction(chunk, offset, opcode),
             _ => simple_instruction(chunk, offset, opcode),
         },

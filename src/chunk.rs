@@ -13,6 +13,10 @@ pub enum OpCode {
     Return,
     Print,
     Pop,
+    /// Condition
+    JumpIfFalse,
+    Jump,
+    /// Variable
     // Define a global variable which doesn't exist.
     DefineGlobal,
     GetGlobal,
@@ -220,6 +224,11 @@ impl Chunk {
     /// Getter of member `code`.
     pub fn code(&self) -> &[u8] {
         &self.code
+    }
+
+    /// Get a muttable reference of member `code`.
+    pub fn code_mut(&mut self) -> &mut [u8] {
+        &mut self.code
     }
 
     /// Getter of member `constants`.

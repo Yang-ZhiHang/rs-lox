@@ -104,6 +104,14 @@ impl VM {
                     OpCode::Pop => {
                         self.pop();
                     }
+                    OpCode::JumpIfFalse => {
+                        let offset = Self::read_short(chunk, &mut self.pc);
+                        self.pc += if self.pop().is_falsey() { offset } else { 0 };
+                    }
+                    OpCode::Jump => {
+                        let offset = Self::read_short(chunk, &mut self.pc);
+                        self.pc += offset;
+                    }
                     OpCode::DefineGlobal => {
                         if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
                             let v = self.pop();
@@ -199,12 +207,21 @@ impl VM {
     }
 
     /// Read a byte data from given chunk and increase pc.
+    ///
     /// We pass chunk into the function so that `read_byte` doesn't need to pay attention
     /// to unwrap the chunk.
     pub fn read_byte(chunk: &Chunk, pc: &mut usize) -> u8 {
         let byte = chunk.code()[*pc];
         *pc += 1;
         byte
+    }
+
+    /// Read two byte data from given chunk and increase pc by two.
+    pub fn read_short(chunk: &Chunk, pc: &mut usize) -> usize {
+        *pc += 2;
+        let h = chunk.code()[*pc - 2] as usize;
+        let l = chunk.code()[*pc - 1] as usize;
+        h << 8 | l
     }
 
     /// Read a constant value from given chunk and increase pc.

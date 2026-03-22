@@ -7,40 +7,22 @@ use crate::{
 
 // Use strum to automatically distribute number for enum member. It's useful when we
 // read bytes data and detect it is opcode or index.
+#[rustfmt::skip]
 #[derive(Clone, Copy, Debug, strum::Display, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
-    Return,
-    Print,
-    Pop,
+    Return, Print, Pop,
     /// Condition
-    JumpIfFalse,
-    Jump,
+    JumpIfFalse, Jump,
     /// Variable
-    // Define a global variable which doesn't exist.
-    DefineGlobal,
-    GetGlobal,
-    // Set a existed global variable.
-    SetGlobal,
-    GetLocal,
-    SetLocal,
+    DefineGlobal, GetGlobal, SetGlobal,
+    GetLocal, SetLocal,
     /// Literal
-    // There is still one byte of space after `OpConstant` for storing the constant index.
-    Constant,
-    Nil,
-    True,
-    False,
+    Constant, Nil, True, False,
     /// Unary
-    Negate,
-    Not,
+    Negate, Not,
     /// Binary
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Less,
-    Greater,
-    Equal,
+    Add, Subtract, Multiply, Divide, Less, Greater, Equal,
 }
 
 /// A trait for types that can be written into the chunk as a single byte.

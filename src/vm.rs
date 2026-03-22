@@ -106,7 +106,7 @@ impl VM {
                     }
                     OpCode::JumpIfFalse => {
                         let offset = Self::read_short(chunk, &mut self.pc);
-                        self.pc += if self.pop().is_falsey() { offset } else { 0 };
+                        self.pc += if self.peek(0).is_falsey() { offset } else { 0 };
                     }
                     OpCode::Jump => {
                         let offset = Self::read_short(chunk, &mut self.pc);
@@ -182,6 +182,8 @@ impl VM {
                     OpCode::Subtract => binary_op!(self, number, -),
                     OpCode::Multiply => binary_op!(self, number, *),
                     OpCode::Divide => binary_op!(self, number, /),
+                    OpCode::Less => binary_op!(self, bool, <),
+                    OpCode::Greater => binary_op!(self, bool, >),
                     OpCode::Not => {
                         let val = &mut self.stack[self.stack_top - 1];
                         *val = Value::Bool(val.is_falsey());
@@ -189,8 +191,6 @@ impl VM {
                     OpCode::True => self.push(Value::Bool(true)),
                     OpCode::False => self.push(Value::Bool(false)),
                     OpCode::Nil => self.push(Value::Nil),
-                    OpCode::Less => binary_op!(self, bool, <),
-                    OpCode::Greater => binary_op!(self, bool, >),
                     OpCode::Equal => {
                         let b = self.pop();
                         let a = self.pop();

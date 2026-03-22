@@ -148,13 +148,13 @@ pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
         TokenType::String       => ParseRule::new(Some(Parser::string),   None,                 Precedence::None),
         TokenType::Identifier   => ParseRule::new(Some(Parser::variable), None,                 Precedence::None),
         TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
-        TokenType::And          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::And          => ParseRule::new(None,                   Some(Parser::and),    Precedence::And),
+        TokenType::Or           => ParseRule::new(None,                   Some(Parser::or),     Precedence::Or),
         TokenType::Class        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Else         => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::For          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Fun          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::If           => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Or           => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Print        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Return       => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Super        => ParseRule::new(None,                   None,                 Precedence::None),
@@ -373,16 +373,18 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' of condition.");
         // 2. parse code block
-        let then_jump = self.emit_jump(OpCode::JumpIfFalse);
+        let else_branch = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop, self.cur.line);
         self.statement();
-        let else_jump = self.emit_jump(OpCode::Jump);
+        let if_end = self.emit_jump(OpCode::Jump);
         // Program will jump here if condition is false.
-        self.patch_jump(then_jump);
+        self.patch_jump(else_branch);
+        self.emit_byte(OpCode::Pop, self.cur.line);
         if self.next(TokenType::Else) {
             self.statement();
         }
         // Program will execute statement and jump here if condition is true.
-        self.patch_jump(else_jump);
+        self.patch_jump(if_end);
     }
 
     /// Re-write jump offset to given index in byte code chunk.
@@ -673,6 +675,26 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// This comparison method is a byte by byte comparison which will sacrifice some performance.
     pub fn token_cmp(&self, t1: &Token, t2: &Token) -> bool {
         t1.name(self.tokenizer.source()) == t2.name(self.tokenizer.source())
+    }
+
+    /// The and handling unit of Pratt parser.
+    /// `a and b` equals to `if a { b } else {}`.
+    pub fn and(&mut self, _assignable: bool) {
+        let if_end = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop, self.cur.line);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(if_end);
+    }
+
+    /// The or handling unit of Pratt parser.
+    /// `a or b` equals to `if a { } else { b }`.
+    pub fn or(&mut self, _assignable: bool) {
+        let else_branch = self.emit_jump(OpCode::JumpIfFalse);
+        let if_end = self.emit_jump(OpCode::Jump);
+        self.patch_jump(else_branch);
+        self.emit_byte(OpCode::Pop, self.cur.line);
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(if_end);
     }
 
     /// Parse the precedence of previous token.

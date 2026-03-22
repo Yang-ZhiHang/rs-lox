@@ -13,7 +13,7 @@ use crate::{
 pub enum OpCode {
     Return, Print, Pop,
     /// Condition
-    JumpIfFalse, Jump,
+    JumpIfFalse, Jump, Loop,
     /// Variable
     DefineGlobal, GetGlobal, SetGlobal,
     GetLocal, SetLocal,

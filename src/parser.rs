@@ -1,3 +1,5 @@
+use std::u16;
+
 #[cfg(debug_assertions)]
 use crate::common::disassemble;
 use crate::{
@@ -305,7 +307,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             // 3. parse expression
             self.expression();
         } else {
-            self.emit_byte(OpCode::Nil, self.cur.line);
+            self.write_byte(OpCode::Nil);
         }
         // 4. parse end ';'
         self.consume(TokenType::Semicolon, "Expected ';' of expression");
@@ -347,6 +349,10 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             self.end_scope();
         } else if self.next(TokenType::If) {
             self.if_statement();
+        } else if self.next(TokenType::While) {
+            self.while_statement();
+        } else if self.next(TokenType::For) {
+            unimplemented!()
         } else {
             self.expression_statement();
         }
@@ -356,14 +362,14 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenType::Semicolon, "Expected ';' of expression.");
-        self.emit_byte(OpCode::Print, self.cur.line);
+        self.write_byte(OpCode::Print);
     }
 
     /// Parse an expression statement which end with `;` character, we finally emit a pop to return a value.
     pub fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenType::Semicolon, "Expected ';' of expression.");
-        self.emit_byte(OpCode::Pop, self.cur.line);
+        self.write_byte(OpCode::Pop);
     }
 
     /// Parse an if statement.
@@ -373,13 +379,14 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' of condition.");
         // 2. parse code block
-        let else_branch = self.emit_jump(OpCode::JumpIfFalse);
-        self.emit_byte(OpCode::Pop, self.cur.line);
+        let else_branch = self.write_jump(OpCode::JumpIfFalse);
+        // pop the value after judgement of if branch to avoid runtime stack overflow.
+        self.write_byte(OpCode::Pop);
         self.statement();
-        let if_end = self.emit_jump(OpCode::Jump);
+        let if_end = self.write_jump(OpCode::Jump);
         // Program will jump here if condition is false.
         self.patch_jump(else_branch);
-        self.emit_byte(OpCode::Pop, self.cur.line);
+        self.write_byte(OpCode::Pop);
         if self.next(TokenType::Else) {
             self.statement();
         }
@@ -390,8 +397,24 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// Re-write jump offset to given index in byte code chunk.
     pub fn patch_jump(&mut self, idx: usize) {
         let offset = self.chunk.code().len() - idx - 2;
+        if offset > u16::MAX as usize {
+            panic!("Jump body too large.");
+        }
         self.chunk.code_mut()[idx] = (offset >> 8) as u8;
         self.chunk.code_mut()[idx + 1] = offset as u8;
+    }
+
+    /// Parse a while statement.
+    pub fn while_statement(&mut self) {
+        let loop_start = self.chunk.code().len();
+        self.consume(TokenType::LeftParen, "Expected '(' of condition.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' of condition.");
+        let while_end = self.write_jump(OpCode::JumpIfFalse);
+        self.write_byte(OpCode::Pop);
+        self.statement();
+        self.write_loop(loop_start);
+        self.patch_jump(while_end);
     }
 
     /// Uses after enter a new function scope.
@@ -410,14 +433,15 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         while self.ctx.local_count > 0
             && self.ctx.locals[self.ctx.local_count - 1]
                 .as_ref()
-                // Value will not be `None` if index in range 0 to `local_count` - 1.
+                // Value will not be `None` because index is ranged between 0 and `local_count` - 1.
                 .unwrap()
                 .depth
                 // Entering the function `end_scope`, all local variable would already been initialized.
+                // Which means `depth` will not be `None`.
                 .unwrap()
                 > self.ctx.scope_depth
         {
-            self.emit_byte(OpCode::Pop, self.cur.line);
+            self.write_byte(OpCode::Pop);
             self.ctx.local_count -= 1;
         }
     }
@@ -469,41 +493,52 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// Write a byte data to the chunk.
-    pub fn emit_byte(&mut self, byte: impl IntoU8, line: usize) {
-        self.chunk.write(byte, line);
+    pub fn write_byte(&mut self, byte: impl IntoU8) {
+        self.chunk.write(byte, self.prev.line);
     }
 
     /// Write two bytes to the chunk.
     /// Used to write opcode with it's immediate operand.
-    pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8, line: usize) {
-        self.emit_byte(byte1, line);
-        self.emit_byte(byte2, line);
+    pub fn write_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8) {
+        self.write_byte(byte1);
+        self.write_byte(byte2);
     }
 
     /// Write return operation code to chunk.
-    pub fn emit_return(&mut self) {
-        self.emit_byte(OpCode::Return, self.cur.line);
+    pub fn write_return(&mut self) {
+        self.write_byte(OpCode::Return);
     }
 
     /// Write operation code and constant value index (which from constant area) to the chunk.
-    pub fn emit_constant(&mut self, constant: Value, line: usize) {
+    pub fn write_constant(&mut self, constant: Value) {
         let idx = self.chunk.write_constant(constant);
-        self.emit_bytes(OpCode::Constant, idx, line);
+        self.write_bytes(OpCode::Constant, idx);
     }
 
     /// Write jump operation code.
     ///
-    /// Returning the start index of jump offset (occupies two bytes).
-    pub fn emit_jump(&mut self, tt: OpCode) -> usize {
-        self.emit_byte(tt, self.prev.line);
-        self.emit_byte(0xff, self.prev.line);
-        self.emit_byte(0xff, self.prev.line);
+    /// Returning the start index of jump offset (occupies two bytes) which should be used in `patch_jump` function.
+    pub fn write_jump(&mut self, tt: OpCode) -> usize {
+        self.write_byte(tt);
+        self.write_byte(0xff);
+        self.write_byte(0xff);
         self.chunk.code().len() - 2
+    }
+
+    /// Write loop operation code.
+    pub fn write_loop(&mut self, start: usize) {
+        self.write_byte(OpCode::Loop);
+        let offset = self.chunk.code().len() - start + 2;
+        if offset > u16::MAX as usize {
+            panic!("Loop body too large.");
+        }
+        self.write_byte(offset >> 8);
+        self.write_byte(offset);
     }
 
     /// Write return operation code to chunk.
     pub fn end_compile(&mut self) {
-        self.emit_return();
+        self.write_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
             disassemble(&self.chunk, self.heap, "dev");
@@ -529,7 +564,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             self.mark_initialized();
             return;
         }
-        self.emit_bytes(OpCode::DefineGlobal, global, self.cur.line);
+        self.write_bytes(OpCode::DefineGlobal, global);
     }
 
     /// Initialize the scope level `depth` of local variable.
@@ -567,22 +602,22 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let tt = self.prev.token_type;
         // Save the operator's line number before `parse_precedence` advances `prev`. This ensures the emitted bytecode
         // has the correct line number for the operator, even if the expression spans multiple lines.
-        let line = self.prev.line;
+        // let line = self.prev.line;
         let rule = get_rule(tt);
         self.parse_precedence(rule.precedence.next());
         #[rustfmt::skip]
         match tt {
-            TokenType::Plus         => self.emit_byte(OpCode::Add, line),
-            TokenType::Minus        => self.emit_byte(OpCode::Subtract, line),
-            TokenType::Star         => self.emit_byte(OpCode::Multiply, line),
-            TokenType::Slash        => self.emit_byte(OpCode::Divide, line),
-            TokenType::Equal        => self.emit_byte(OpCode::Equal, line),
-            TokenType::BangEqual    => self.emit_bytes(OpCode::Equal, OpCode::Not, line),
-            TokenType::Less         => self.emit_byte(OpCode::Less, line),
-            TokenType::Greater      => self.emit_byte(OpCode::Greater, line),
-            TokenType::LessEqual    => self.emit_bytes(OpCode::Less, OpCode::Not, line),
-            TokenType::GreaterEqual => self.emit_bytes(OpCode::Greater, OpCode::Not, line),
-            TokenType::EqualEqual   => self.emit_byte(OpCode::Equal, line),
+            TokenType::Plus         => self.write_byte(OpCode::Add),
+            TokenType::Minus        => self.write_byte(OpCode::Subtract),
+            TokenType::Star         => self.write_byte(OpCode::Multiply),
+            TokenType::Slash        => self.write_byte(OpCode::Divide),
+            TokenType::Equal        => self.write_byte(OpCode::Equal),
+            TokenType::BangEqual    => self.write_bytes(OpCode::Equal, OpCode::Not),
+            TokenType::Less         => self.write_byte(OpCode::Less),
+            TokenType::Greater      => self.write_byte(OpCode::Greater),
+            TokenType::LessEqual    => self.write_bytes(OpCode::Less, OpCode::Not),
+            TokenType::GreaterEqual => self.write_bytes(OpCode::Greater, OpCode::Not),
+            TokenType::EqualEqual   => self.write_byte(OpCode::Equal),
             _ => {},
         };
     }
@@ -595,7 +630,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             .expect("Number token should be valid UTF-8.")
             .parse()
             .expect("Number token should be a valid float.");
-        self.emit_constant(Value::Number(val), self.prev.line);
+        self.write_constant(Value::Number(val));
     }
 
     /// The parenthesis handling unit of Pratt parser.
@@ -608,9 +643,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn literal(&mut self, _assignable: bool) {
         #[rustfmt::skip]
         match self.prev.token_type {
-            TokenType::True   => self.emit_byte(OpCode::True, self.prev.line),
-            TokenType::False  => self.emit_byte(OpCode::False, self.prev.line),
-            TokenType::Nil    => self.emit_byte(OpCode::Nil, self.prev.line),
+            TokenType::True   => self.write_byte(OpCode::True),
+            TokenType::False  => self.write_byte(OpCode::False),
+            TokenType::Nil    => self.write_byte(OpCode::Nil),
             _ => {
                 unreachable!()
             }
@@ -622,7 +657,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let obj_idx = self.heap.write_string(s);
-        self.emit_constant(Value::Object(ObjId::new(obj_idx)), self.prev.line);
+        self.write_constant(Value::Object(ObjId::new(obj_idx)));
     }
 
     /// The variable handling unit of Pratt parser.
@@ -641,9 +676,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         };
         if assignable && self.next(TokenType::Equal) {
             self.expression();
-            self.emit_bytes(op_set, idx, self.prev.line);
+            self.write_bytes(op_set, idx);
         } else {
-            self.emit_bytes(op_get, idx, self.prev.line);
+            self.write_bytes(op_get, idx);
         }
     }
 
@@ -680,8 +715,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// The and handling unit of Pratt parser.
     /// `a and b` equals to `if a { b } else {}`.
     pub fn and(&mut self, _assignable: bool) {
-        let if_end = self.emit_jump(OpCode::JumpIfFalse);
-        self.emit_byte(OpCode::Pop, self.cur.line);
+        let if_end = self.write_jump(OpCode::JumpIfFalse);
+        self.write_byte(OpCode::Pop);
         self.parse_precedence(Precedence::And);
         self.patch_jump(if_end);
     }
@@ -689,10 +724,10 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// The or handling unit of Pratt parser.
     /// `a or b` equals to `if a { } else { b }`.
     pub fn or(&mut self, _assignable: bool) {
-        let else_branch = self.emit_jump(OpCode::JumpIfFalse);
-        let if_end = self.emit_jump(OpCode::Jump);
+        let else_branch = self.write_jump(OpCode::JumpIfFalse);
+        let if_end = self.write_jump(OpCode::Jump);
         self.patch_jump(else_branch);
-        self.emit_byte(OpCode::Pop, self.cur.line);
+        self.write_byte(OpCode::Pop);
         self.parse_precedence(Precedence::Or);
         self.patch_jump(if_end);
     }

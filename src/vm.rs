@@ -83,7 +83,7 @@ impl VM {
     }
 
     /// Run the opcode from the byte chunk.
-    /// `chunk` is passed in as a parameter instead of stored in self,
+    /// `chunk` is passing in as a parameter instead of storing at self,
     /// so that self is free to be mutably borrowed for push/pop inside the loop.
     pub fn run(&mut self, chunk: &Chunk) -> InterpretResult {
         while self.pc < chunk.code().len() {
@@ -103,6 +103,10 @@ impl VM {
                     }
                     OpCode::Pop => {
                         self.pop();
+                    }
+                    OpCode::Loop => {
+                        let offset = Self::read_short(chunk, &mut self.pc);
+                        self.pc -= offset;
                     }
                     OpCode::JumpIfFalse => {
                         let offset = Self::read_short(chunk, &mut self.pc);

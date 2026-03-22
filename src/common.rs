@@ -71,7 +71,9 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
             OpCode::Constant | OpCode::DefineGlobal | OpCode::GetGlobal | OpCode::SetGlobal => {
                 constant_instruction(chunk, heap, offset, opcode)
             }
-            OpCode::JumpIfFalse | OpCode::Jump => jump_instruction(chunk, offset, opcode),
+            OpCode::JumpIfFalse | OpCode::Jump | OpCode::Loop => {
+                jump_instruction(chunk, offset, opcode)
+            }
             OpCode::GetLocal | OpCode::SetLocal => index_instruction(chunk, offset, opcode),
             _ => simple_instruction(chunk, offset, opcode),
         },

@@ -1,5 +1,3 @@
-use std::u16;
-
 #[cfg(debug_assertions)]
 use crate::common::disassemble;
 use crate::{
@@ -307,11 +305,15 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             // 3. parse expression
             self.expression();
         } else {
-            self.write_byte(OpCode::Nil);
+            self.emit_byte(OpCode::Nil);
         }
         // 4. parse end ';'
         self.consume(TokenType::Semicolon, "Expected ';' of expression");
         self.define_variable(global);
+    }
+
+    pub fn fun_declaration(&self) {
+        unimplemented!()
     }
 
     /// Declare a local variable. Return if current context is global.
@@ -335,10 +337,6 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.ctx.local_count += 1;
     }
 
-    pub fn fun_declaration(&self) {
-        unimplemented!()
-    }
-
     pub fn statement(&mut self) {
         if self.next(TokenType::Print) {
             self.print_statement();
@@ -352,7 +350,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         } else if self.next(TokenType::While) {
             self.while_statement();
         } else if self.next(TokenType::For) {
-            unimplemented!()
+            self.for_statement();
         } else {
             self.expression_statement();
         }
@@ -362,14 +360,14 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn print_statement(&mut self) {
         self.expression();
         self.consume(TokenType::Semicolon, "Expected ';' of expression.");
-        self.write_byte(OpCode::Print);
+        self.emit_byte(OpCode::Print);
     }
 
     /// Parse an expression statement which end with `;` character, we finally emit a pop to return a value.
     pub fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenType::Semicolon, "Expected ';' of expression.");
-        self.write_byte(OpCode::Pop);
+        self.emit_byte(OpCode::Pop);
     }
 
     /// Parse an if statement.
@@ -379,19 +377,73 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' of condition.");
         // 2. parse code block
-        let else_branch = self.write_jump(OpCode::JumpIfFalse);
+        let else_branch = self.emit_jump(OpCode::JumpIfFalse);
         // pop the value after judgement of if branch to avoid runtime stack overflow.
-        self.write_byte(OpCode::Pop);
+        self.emit_byte(OpCode::Pop);
         self.statement();
-        let if_end = self.write_jump(OpCode::Jump);
+        let if_end = self.emit_jump(OpCode::Jump);
         // Program will jump here if condition is false.
         self.patch_jump(else_branch);
-        self.write_byte(OpCode::Pop);
+        self.emit_byte(OpCode::Pop);
         if self.next(TokenType::Else) {
             self.statement();
         }
         // Program will execute statement and jump here if condition is true.
         self.patch_jump(if_end);
+    }
+
+    /// Parse a while statement.
+    pub fn while_statement(&mut self) {
+        let loop_start = self.chunk.code().len();
+        self.consume(TokenType::LeftParen, "Expected '(' of condition.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' of condition.");
+        let while_end = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop);
+        self.statement();
+        self.emit_loop(loop_start);
+        self.patch_jump(while_end);
+    }
+
+    /// Parse a for statement.
+    pub fn for_statement(&mut self) {
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expected '(' after 'for' keyword.");
+        if self.next(TokenType::Semicolon) {
+            // No initializer.
+        } else if self.next(TokenType::Let) {
+            self.var_declaration();
+        } else {
+            // Such as assignment clauses.
+            self.expression_statement();
+        }
+        let mut loop_start = self.chunk.code().len();
+        let mut exit_jump = None;
+        if !self.next(TokenType::Semicolon) {
+            self.expression();
+            self.consume(TokenType::Semicolon, "Expected ';' after loop condition.");
+            exit_jump = Some(self.emit_jump(OpCode::JumpIfFalse));
+            self.emit_byte(OpCode::Pop);
+        }
+        if !self.next(TokenType::RightParen) {
+            // for body should execute before increase clause.
+            let body_jump = self.emit_jump(OpCode::Jump);
+            let incr_clause = self.chunk.code().len();
+            self.expression();
+            self.emit_byte(OpCode::Pop);
+            self.consume(TokenType::RightParen, "Expected ')' after increase clause.");
+            self.emit_loop(loop_start);
+            // reuse of `loop_start`. In the following context, it means jump offset to increase clause.
+            loop_start = incr_clause;
+            self.patch_jump(body_jump);
+        }
+        self.statement();
+        self.emit_loop(loop_start);
+        if let Some(offset) = exit_jump {
+            self.patch_jump(offset);
+            self.emit_byte(OpCode::Pop);
+        }
+        self.end_scope();
     }
 
     /// Re-write jump offset to given index in byte code chunk.
@@ -402,19 +454,6 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         }
         self.chunk.code_mut()[idx] = (offset >> 8) as u8;
         self.chunk.code_mut()[idx + 1] = offset as u8;
-    }
-
-    /// Parse a while statement.
-    pub fn while_statement(&mut self) {
-        let loop_start = self.chunk.code().len();
-        self.consume(TokenType::LeftParen, "Expected '(' of condition.");
-        self.expression();
-        self.consume(TokenType::RightParen, "Expected ')' of condition.");
-        let while_end = self.write_jump(OpCode::JumpIfFalse);
-        self.write_byte(OpCode::Pop);
-        self.statement();
-        self.write_loop(loop_start);
-        self.patch_jump(while_end);
     }
 
     /// Uses after enter a new function scope.
@@ -441,7 +480,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
                 .unwrap()
                 > self.ctx.scope_depth
         {
-            self.write_byte(OpCode::Pop);
+            self.emit_byte(OpCode::Pop);
             self.ctx.local_count -= 1;
         }
     }
@@ -493,52 +532,52 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// Write a byte data to the chunk.
-    pub fn write_byte(&mut self, byte: impl IntoU8) {
+    pub fn emit_byte(&mut self, byte: impl IntoU8) {
         self.chunk.write(byte, self.prev.line);
     }
 
     /// Write two bytes to the chunk.
     /// Used to write opcode with it's immediate operand.
-    pub fn write_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8) {
-        self.write_byte(byte1);
-        self.write_byte(byte2);
+    pub fn emit_bytes(&mut self, byte1: impl IntoU8, byte2: impl IntoU8) {
+        self.emit_byte(byte1);
+        self.emit_byte(byte2);
     }
 
     /// Write return operation code to chunk.
-    pub fn write_return(&mut self) {
-        self.write_byte(OpCode::Return);
+    pub fn emit_return(&mut self) {
+        self.emit_byte(OpCode::Return);
     }
 
     /// Write operation code and constant value index (which from constant area) to the chunk.
-    pub fn write_constant(&mut self, constant: Value) {
+    pub fn emit_constant(&mut self, constant: Value) {
         let idx = self.chunk.write_constant(constant);
-        self.write_bytes(OpCode::Constant, idx);
+        self.emit_bytes(OpCode::Constant, idx);
     }
 
     /// Write jump operation code.
     ///
     /// Returning the start index of jump offset (occupies two bytes) which should be used in `patch_jump` function.
-    pub fn write_jump(&mut self, tt: OpCode) -> usize {
-        self.write_byte(tt);
-        self.write_byte(0xff);
-        self.write_byte(0xff);
+    pub fn emit_jump(&mut self, op: OpCode) -> usize {
+        self.emit_byte(op);
+        self.emit_byte(0xff);
+        self.emit_byte(0xff);
         self.chunk.code().len() - 2
     }
 
     /// Write loop operation code.
-    pub fn write_loop(&mut self, start: usize) {
-        self.write_byte(OpCode::Loop);
+    pub fn emit_loop(&mut self, start: usize) {
+        self.emit_byte(OpCode::Loop);
         let offset = self.chunk.code().len() - start + 2;
         if offset > u16::MAX as usize {
             panic!("Loop body too large.");
         }
-        self.write_byte(offset >> 8);
-        self.write_byte(offset);
+        self.emit_byte(offset >> 8);
+        self.emit_byte(offset);
     }
 
     /// Write return operation code to chunk.
     pub fn end_compile(&mut self) {
-        self.write_return();
+        self.emit_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
             disassemble(&self.chunk, self.heap, "dev");
@@ -564,7 +603,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             self.mark_initialized();
             return;
         }
-        self.write_bytes(OpCode::DefineGlobal, global);
+        self.emit_bytes(OpCode::DefineGlobal, global);
     }
 
     /// Initialize the scope level `depth` of local variable.
@@ -607,17 +646,17 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.parse_precedence(rule.precedence.next());
         #[rustfmt::skip]
         match tt {
-            TokenType::Plus         => self.write_byte(OpCode::Add),
-            TokenType::Minus        => self.write_byte(OpCode::Subtract),
-            TokenType::Star         => self.write_byte(OpCode::Multiply),
-            TokenType::Slash        => self.write_byte(OpCode::Divide),
-            TokenType::Equal        => self.write_byte(OpCode::Equal),
-            TokenType::BangEqual    => self.write_bytes(OpCode::Equal, OpCode::Not),
-            TokenType::Less         => self.write_byte(OpCode::Less),
-            TokenType::Greater      => self.write_byte(OpCode::Greater),
-            TokenType::LessEqual    => self.write_bytes(OpCode::Less, OpCode::Not),
-            TokenType::GreaterEqual => self.write_bytes(OpCode::Greater, OpCode::Not),
-            TokenType::EqualEqual   => self.write_byte(OpCode::Equal),
+            TokenType::Plus         => self.emit_byte(OpCode::Add),
+            TokenType::Minus        => self.emit_byte(OpCode::Subtract),
+            TokenType::Star         => self.emit_byte(OpCode::Multiply),
+            TokenType::Slash        => self.emit_byte(OpCode::Divide),
+            TokenType::Equal        => self.emit_byte(OpCode::Equal),
+            TokenType::BangEqual    => self.emit_bytes(OpCode::Equal, OpCode::Not),
+            TokenType::Less         => self.emit_byte(OpCode::Less),
+            TokenType::Greater      => self.emit_byte(OpCode::Greater),
+            TokenType::LessEqual    => self.emit_bytes(OpCode::Less, OpCode::Not),
+            TokenType::GreaterEqual => self.emit_bytes(OpCode::Greater, OpCode::Not),
+            TokenType::EqualEqual   => self.emit_byte(OpCode::Equal),
             _ => {},
         };
     }
@@ -630,7 +669,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             .expect("Number token should be valid UTF-8.")
             .parse()
             .expect("Number token should be a valid float.");
-        self.write_constant(Value::Number(val));
+        self.emit_constant(Value::Number(val));
     }
 
     /// The parenthesis handling unit of Pratt parser.
@@ -643,9 +682,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn literal(&mut self, _assignable: bool) {
         #[rustfmt::skip]
         match self.prev.token_type {
-            TokenType::True   => self.write_byte(OpCode::True),
-            TokenType::False  => self.write_byte(OpCode::False),
-            TokenType::Nil    => self.write_byte(OpCode::Nil),
+            TokenType::True   => self.emit_byte(OpCode::True),
+            TokenType::False  => self.emit_byte(OpCode::False),
+            TokenType::Nil    => self.emit_byte(OpCode::Nil),
             _ => {
                 unreachable!()
             }
@@ -657,7 +696,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let obj_idx = self.heap.write_string(s);
-        self.write_constant(Value::Object(ObjId::new(obj_idx)));
+        self.emit_constant(Value::Object(ObjId::new(obj_idx)));
     }
 
     /// The variable handling unit of Pratt parser.
@@ -676,9 +715,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         };
         if assignable && self.next(TokenType::Equal) {
             self.expression();
-            self.write_bytes(op_set, idx);
+            self.emit_bytes(op_set, idx);
         } else {
-            self.write_bytes(op_get, idx);
+            self.emit_bytes(op_get, idx);
         }
     }
 
@@ -715,8 +754,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// The and handling unit of Pratt parser.
     /// `a and b` equals to `if a { b } else {}`.
     pub fn and(&mut self, _assignable: bool) {
-        let if_end = self.write_jump(OpCode::JumpIfFalse);
-        self.write_byte(OpCode::Pop);
+        let if_end = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop);
         self.parse_precedence(Precedence::And);
         self.patch_jump(if_end);
     }
@@ -724,10 +763,10 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// The or handling unit of Pratt parser.
     /// `a or b` equals to `if a { } else { b }`.
     pub fn or(&mut self, _assignable: bool) {
-        let else_branch = self.write_jump(OpCode::JumpIfFalse);
-        let if_end = self.write_jump(OpCode::Jump);
+        let else_branch = self.emit_jump(OpCode::JumpIfFalse);
+        let if_end = self.emit_jump(OpCode::Jump);
         self.patch_jump(else_branch);
-        self.write_byte(OpCode::Pop);
+        self.emit_byte(OpCode::Pop);
         self.parse_precedence(Precedence::Or);
         self.patch_jump(if_end);
     }

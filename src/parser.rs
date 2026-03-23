@@ -134,6 +134,7 @@ pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
         TokenType::Dot          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Minus        => ParseRule::new(Some(Parser::unary),    Some(Parser::binary), Precedence::Term),
         TokenType::Plus         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Term),
+        TokenType::Colon        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Semicolon    => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Star         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::Bang         => ParseRule::new(Some(Parser::unary),    None,                 Precedence::None),
@@ -145,25 +146,28 @@ pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
         TokenType::Less         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Greater      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::Equal        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Let          => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::String       => ParseRule::new(Some(Parser::string),   None,                 Precedence::None),
         TokenType::Identifier   => ParseRule::new(Some(Parser::variable), None,                 Precedence::None),
         TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
         TokenType::And          => ParseRule::new(None,                   Some(Parser::and),    Precedence::And),
         TokenType::Or           => ParseRule::new(None,                   Some(Parser::or),     Precedence::Or),
-        TokenType::Class        => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Else         => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::For          => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Fun          => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::If           => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Print        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Return       => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Super        => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::This         => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::True         => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
         TokenType::False        => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
         TokenType::Nil          => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
-        TokenType::Let          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::If           => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Else         => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::While        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::For          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Switch       => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Case         => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Default      => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Fun          => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Class        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::Super        => ParseRule::new(None,                   None,                 Precedence::None),
+        TokenType::This         => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Error(_)     => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::EOF          => ParseRule::new(None,                   None,                 Precedence::None),
     }
@@ -351,6 +355,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             self.while_statement();
         } else if self.next(TokenType::For) {
             self.for_statement();
+        } else if self.next(TokenType::Switch) {
+            self.switch_statement();
         } else {
             self.expression_statement();
         }
@@ -373,9 +379,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// Parse an if statement.
     pub fn if_statement(&mut self) {
         // 1. parse condition
-        self.consume(TokenType::LeftParen, "Expected '(' of condition.");
+        // self.consume(TokenType::LeftParen, "Expected '(' of condition.");
         self.expression();
-        self.consume(TokenType::RightParen, "Expected ')' of condition.");
+        // self.consume(TokenType::RightParen, "Expected ')' of condition.");
         // 2. parse code block
         let else_branch = self.emit_jump(OpCode::JumpIfFalse);
         // pop the value after judgement of if branch to avoid runtime stack overflow.
@@ -395,9 +401,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// Parse a while statement.
     pub fn while_statement(&mut self) {
         let loop_start = self.chunk.code().len();
-        self.consume(TokenType::LeftParen, "Expected '(' of condition.");
+        // self.consume(TokenType::LeftParen, "Expected '(' of condition.");
         self.expression();
-        self.consume(TokenType::RightParen, "Expected ')' of condition.");
+        // self.consume(TokenType::RightParen, "Expected ')' of condition.");
         let while_end = self.emit_jump(OpCode::JumpIfFalse);
         self.emit_byte(OpCode::Pop);
         self.statement();
@@ -446,14 +452,55 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.end_scope();
     }
 
+    /// Parse a switch statement.
+    pub fn switch_statement(&mut self) {
+        self.begin_scope();
+        self.consume(TokenType::Identifier, "Expected a variable.");
+        let t = self.prev;
+        self.consume(TokenType::LeftBrace, "Expected '{' after variable clause.");
+        // start case clause.
+        let mut next_case = None;
+        let mut jump_end_list = vec![];
+        while !self.check(TokenType::Default) {
+            if let Some(start_idx) = next_case {
+                self.patch_jump(start_idx);
+                self.emit_byte(OpCode::Pop);
+            };
+            self.consume(TokenType::Case, "Expected 'case' caluse.");
+            self.consume(TokenType::Number, "Expected a constant value.");
+            self.number(false);
+            self.named_variable(false, &t);
+            self.consume(TokenType::Colon, "Expected ':' after case clause.");
+            self.emit_byte(OpCode::Equal);
+            next_case = Some(self.emit_jump(OpCode::JumpIfFalse));
+            self.emit_byte(OpCode::Pop);
+            while !self.check(TokenType::Case) && !self.check(TokenType::Default) {
+                self.declaration();
+            }
+            jump_end_list.push(self.emit_jump(OpCode::Jump));
+        }
+        self.consume(TokenType::Default, "Expected 'default' caluse.");
+        self.consume(TokenType::Colon, "Expected ':' after default clause.");
+        if let Some(idx) = next_case {
+            self.patch_jump(idx);
+        };
+        self.declaration();
+        // end case clause.
+        for start_idx in jump_end_list {
+            self.patch_jump(start_idx);
+        }
+        self.consume(TokenType::RightBrace, "Expected '}' after variable clause.");
+        self.end_scope();
+    }
+
     /// Re-write jump offset to given index in byte code chunk.
-    pub fn patch_jump(&mut self, idx: usize) {
-        let offset = self.chunk.code().len() - idx - 2;
+    pub fn patch_jump(&mut self, from: usize) {
+        let offset = self.chunk.code().len() - from - 2;
         if offset > u16::MAX as usize {
             panic!("Jump body too large.");
         }
-        self.chunk.code_mut()[idx] = (offset >> 8) as u8;
-        self.chunk.code_mut()[idx + 1] = offset as u8;
+        self.chunk.code_mut()[from] = (offset >> 8) as u8;
+        self.chunk.code_mut()[from + 1] = offset as u8;
     }
 
     /// Uses after enter a new function scope.
@@ -650,7 +697,6 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             TokenType::Minus        => self.emit_byte(OpCode::Subtract),
             TokenType::Star         => self.emit_byte(OpCode::Multiply),
             TokenType::Slash        => self.emit_byte(OpCode::Divide),
-            TokenType::Equal        => self.emit_byte(OpCode::Equal),
             TokenType::BangEqual    => self.emit_bytes(OpCode::Equal, OpCode::Not),
             TokenType::Less         => self.emit_byte(OpCode::Less),
             TokenType::Greater      => self.emit_byte(OpCode::Greater),
@@ -701,15 +747,21 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// The variable handling unit of Pratt parser.
     pub fn variable(&mut self, assignable: bool) {
-        let token = self.prev;
+        let t = self.prev;
+        // Extract the code block into `named_variable` to reuse it at switch clause.
+        self.named_variable(assignable, &t);
+    }
+    
+    /// Judge if the variable is local variable or global and emit operation code.
+    pub fn named_variable(&mut self, assignable: bool, t: &Token) {
         let idx;
-        let (op_get, op_set) = match self.get_local_idx(&token) {
+        let (op_get, op_set) = match self.get_local_idx(t) {
             Some(local_idx) => {
                 idx = local_idx;
                 (OpCode::GetLocal, OpCode::SetLocal)
             }
             None => {
-                idx = self.identifier_constant(self.prev);
+                idx = self.identifier_constant(*t);
                 (OpCode::GetGlobal, OpCode::SetGlobal)
             }
         };

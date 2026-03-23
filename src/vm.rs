@@ -91,8 +91,8 @@ impl VM {
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
                     OpCode::Constant => {
-                        let value = Self::read_constant(chunk, &mut self.pc);
-                        self.push(value);
+                        let val = Self::read_constant(chunk, &mut self.pc);
+                        self.push(val);
                     }
                     OpCode::Print => {
                         let val = self.pop();
@@ -261,6 +261,9 @@ impl VM {
 
     /// Return the value away `n` from top element of the stack.
     pub fn peek(&self, n: usize) -> Value {
+        if n > self.stack_top - 1 {
+            panic!("Cannot peek index under zero.")
+        }
         self.stack[self.stack_top - 1 - n]
     }
 

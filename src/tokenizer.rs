@@ -49,6 +49,7 @@ pub enum TokenType {
     Dot,
     Minus,
     Plus,
+    Colon,
     Semicolon,
     Star,
     Bang,
@@ -82,6 +83,9 @@ pub enum TokenType {
     True,
     Let,
     While,
+    Switch,
+    Case,
+    Default,
     // Others
     Error(&'static str),
     EOF,
@@ -148,6 +152,7 @@ impl<'src> Tokenizer<'src> {
             '.' => self.make_token(TokenType::Dot),
             '-' => self.make_token(TokenType::Minus),
             '+' => self.make_token(TokenType::Plus),
+            ':' => self.make_token(TokenType::Colon),
             ';' => self.make_token(TokenType::Semicolon),
             '*' => self.make_token(TokenType::Star),
             '!' => {
@@ -184,6 +189,8 @@ impl<'src> Tokenizer<'src> {
             }
             '/' => self.make_token(TokenType::Slash),
             '"' => self.string(),
+            '&' if self.next('&') => self.make_token(TokenType::And),
+            '|' if self.next('|') => self.make_token(TokenType::Or),
             _ => self.error_token("Unexpected character"),
         }
     }
@@ -359,7 +366,12 @@ impl<'src> Tokenizer<'src> {
     pub fn identifier_type(&mut self) -> TokenType {
         match self.src[self.start] as char {
             'a' => self.check_keyword(1, 2, "nd", TokenType::And),
-            'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
+            'c' => match self.src[self.start + 1] as char {
+                'a' => self.check_keyword(2, 2, "se", TokenType::Case),
+                'l' => self.check_keyword(2, 3, "ass", TokenType::Class),
+                _ => TokenType::Identifier,
+            },
+            'd' => self.check_keyword(1, 6, "efault", TokenType::Default),
             'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
             'f' => match self.src[self.start + 1] as char {
                 'a' => self.check_keyword(2, 3, "lse", TokenType::False),
@@ -373,7 +385,11 @@ impl<'src> Tokenizer<'src> {
             'o' => self.check_keyword(1, 1, "r", TokenType::Or),
             'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
             'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
-            's' => self.check_keyword(1, 4, "uper", TokenType::Super),
+            's' => match self.src[self.start + 1] as char {
+                'w' => self.check_keyword(2, 4, "itch", TokenType::Switch),
+                'u' => self.check_keyword(2, 4, "uper", TokenType::Super),
+                _ => TokenType::Identifier,
+            },
             't' => match self.src[self.start + 1] as char {
                 'h' => self.check_keyword(2, 2, "is", TokenType::This),
                 'r' => self.check_keyword(2, 2, "ue", TokenType::True),

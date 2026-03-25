@@ -3,6 +3,8 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
 };
 
+use crate::{chunk::Chunk, heap::Heap};
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct ObjId {
     pub val: usize,
@@ -28,19 +30,18 @@ impl Display for ObjId {
 
 pub enum ObjData {
     String(ObjString),
-    // Function,
+    Function(ObjFunction),
     // Closure,
 }
 
 impl Display for ObjData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ObjData::String(obj) => {
-                write!(f, "{}", obj)
+            ObjData::String(obj_string) => {
+                write!(f, "{}", obj_string)
             }
-            #[allow(unreachable_patterns)]
-            _ => {
-                unreachable!()
+            ObjData::Function(obj_func) => {
+                write!(f, "{}", obj_func)
             }
         }
     }
@@ -62,6 +63,34 @@ impl ObjString {
     pub fn new(s: &str) -> Self {
         Self {
             value: String::from(s),
+        }
+    }
+}
+
+pub struct ObjFunction {
+    pub name: ObjId,
+    pub chunk: Chunk,
+    pub arity: usize,
+}
+
+pub enum FunctionType {
+    /// The type used to represent the global scope
+    Script,
+    Function,
+}
+
+impl Display for ObjFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<fn {}>", self.name)
+    }
+}
+
+impl ObjFunction {
+    pub fn new(name: ObjId, arity: usize) -> Self {
+        Self {
+            name,
+            chunk: Chunk::new(),
+            arity,
         }
     }
 }

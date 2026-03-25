@@ -9,7 +9,8 @@ Different from Tree-Walking interpreter, lox interpreter is a Single-pass interp
 For this interpreter learning project, we don't strictly obey the official grammar standard. I made some different design choices or some additional features from the original one in `Crafting Interpreters` book. As the following:
 
 1. Change `var` to `let` for variable declaration.
-2. Add `switch` statement.
+2. Add `&&` and `||` logical operation which as same as `and` and `or`.
+3. Add `switch` statement.
 
 ## Features
 

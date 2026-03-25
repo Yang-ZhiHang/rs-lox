@@ -1,7 +1,8 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
     heap::Heap,
-    object::ObjId,
+    object::{ObjData, ObjId},
+    parser::Parser,
     table::HashTable,
 };
 
@@ -35,7 +36,15 @@ macro_rules! binary_op {
     }};
 }
 
-const STACK_SIZE: usize = 256;
+// Macro helper to avoid borrow checker.
+macro_rules! current_frame {
+    ($self:ident) => {
+        $self.frames[$self.frame_count - 1].as_mut().unwrap()
+    };
+}
+
+const FRAMES_MAX: usize = 64;
+const STACK_MAX: usize = FRAMES_MAX * u8::MAX as usize;
 
 pub enum InterpretResult {
     Ok,
@@ -43,19 +52,46 @@ pub enum InterpretResult {
     RuntimeError,
 }
 
+pub struct CallFrame {
+    pc: usize,
+    func: ObjId,
+    slot_offset: usize,
+}
+
+impl CallFrame {
+    pub fn new(pc: usize, func: ObjId, slot_offset: usize) -> Self {
+        Self {
+            pc,
+            func,
+            slot_offset,
+        }
+    }
+
+    /// Return the value from vm's stack according to relative offset.
+    pub fn get(&self, stack: &[Value], offset: usize) -> Value {
+        stack[self.slot_offset + offset]
+    }
+
+    /// Set the value in vm's stack according to relative offset.
+    pub fn set(&self, stack: &mut [Value], offset: usize, v: Value) {
+        stack[self.slot_offset + offset] = v;
+    }
+}
+
 pub struct VM {
     /// The heap that stores objects (dynamic length).
     pub heap: Heap,
-    /// Program counter, use to represent where has the code been executed.
-    /// Q: Is pointer better than counter in rust?
-    pc: usize,
+    /// Function call frames.
+    frames: [Option<CallFrame>; FRAMES_MAX],
+    /// The depth of function call.
+    frame_count: usize,
     /// The stack to stored temporary value in expression.
     /// Q: wheater to make it dynamic vector or just static?
-    stack: [Value; STACK_SIZE],
+    stack: [Value; STACK_MAX],
     /// The index of next element.
     stack_top: usize,
     /// The hash table to store identifier.
-    strings: HashTable,
+    global_variables: HashTable,
 }
 
 impl Default for VM {
@@ -70,28 +106,48 @@ impl VM {
     pub fn new() -> Self {
         Self {
             heap: Heap::new(),
-            pc: 0,
-            stack: [Value::Nil; STACK_SIZE],
+            // pc: 0,
+            frames: [const { None }; FRAMES_MAX],
+            frame_count: 0,
+            stack: [Value::Nil; STACK_MAX],
             stack_top: 0,
-            strings: HashTable::new(),
+            global_variables: HashTable::new(),
         }
     }
 
     /// Interpret the given byte chunk.
-    pub fn interpret(&mut self, chunk: &Chunk) -> InterpretResult {
-        self.run(chunk)
+    pub fn interpret(&mut self, parser: Parser) -> InterpretResult {
+        if let Some(obj_id) = parser.compile() {
+            self.push(Value::Object(obj_id));
+            let frame = CallFrame::new(0, obj_id, 0);
+            self.frames[self.frame_count] = Some(frame);
+            self.frame_count += 1;
+            return self.run();
+        }
+        InterpretResult::CompileError
     }
 
     /// Run the opcode from the byte chunk.
     /// `chunk` is passing in as a parameter instead of storing at self,
     /// so that self is free to be mutably borrowed for push/pop inside the loop.
-    pub fn run(&mut self, chunk: &Chunk) -> InterpretResult {
-        while self.pc < chunk.code().len() {
-            let opcode = Self::read_byte(chunk, &mut self.pc);
+    pub fn run(&mut self) -> InterpretResult {
+        let chunk: *const Chunk = unsafe {
+            let obj_func = self.heap.get_func_unchecked(current_frame!(self).func);
+            &obj_func.chunk
+        };
+        let pc_ptr: *const usize = &current_frame!(self).pc;
+        while current_frame!(self).pc < (unsafe { chunk.as_ref().unwrap() }).code().len() {
+            let opcode = Self::read_byte(
+                unsafe { chunk.as_ref().unwrap() },
+                &mut current_frame!(self).pc,
+            );
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
                     OpCode::Constant => {
-                        let val = Self::read_constant(chunk, &mut self.pc);
+                        let val = Self::read_constant(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        );
                         self.push(val);
                     }
                     OpCode::Print => {
@@ -105,65 +161,104 @@ impl VM {
                         self.pop();
                     }
                     OpCode::Loop => {
-                        let offset = Self::read_short(chunk, &mut self.pc);
-                        self.pc -= offset;
+                        let offset = Self::read_short(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        );
+                        current_frame!(self).pc -= offset;
                     }
                     OpCode::JumpIfFalse => {
-                        let offset = Self::read_short(chunk, &mut self.pc);
-                        self.pc += if self.peek(0).is_falsey() { offset } else { 0 };
+                        let offset = Self::read_short(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        );
+                        current_frame!(self).pc +=
+                            if self.peek(0).is_falsey() { offset } else { 0 };
                     }
                     OpCode::Jump => {
-                        let offset = Self::read_short(chunk, &mut self.pc);
-                        self.pc += offset;
+                        let offset = Self::read_short(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        );
+                        current_frame!(self).pc += offset;
                     }
                     OpCode::DefineGlobal => {
-                        if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
+                        if let Value::Object(obj_id) = Self::read_constant(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        ) {
                             let v = self.pop();
-                            self.strings.set(obj_id, v);
+                            self.global_variables.set(obj_id, v);
                         }
                     }
                     OpCode::GetGlobal => {
-                        if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
-                            match self.strings.get(&obj_id) {
+                        if let Value::Object(obj_id) = Self::read_constant(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        ) {
+                            match self.global_variables.get(&obj_id) {
                                 Some(e) => {
                                     let v = e.v;
                                     self.push(v);
                                 }
                                 None => {
-                                    self.runtime_error(chunk, "Undefined variable.");
+                                    self.runtime_error(
+                                        unsafe { chunk.as_ref().unwrap() },
+                                        unsafe { *pc_ptr },
+                                        "Undefined variable.",
+                                    );
                                     return InterpretResult::RuntimeError;
                                 }
                             }
                         }
                     }
                     OpCode::SetGlobal => {
-                        if let Value::Object(obj_id) = Self::read_constant(chunk, &mut self.pc) {
+                        if let Value::Object(obj_id) = Self::read_constant(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        ) {
                             let v = self.peek(0);
-                            match &mut self.strings.get_mut(&obj_id) {
+                            match &mut self.global_variables.get_mut(&obj_id) {
                                 Some(e) => {
                                     e.v = v;
                                 }
                                 None => {
-                                    self.runtime_error(chunk, "Undefined variable.");
+                                    self.runtime_error(
+                                        unsafe { chunk.as_ref().unwrap() },
+                                        unsafe { *pc_ptr },
+                                        "Undefined variable.",
+                                    );
                                     return InterpretResult::RuntimeError;
                                 }
                             }
                         }
                     }
                     OpCode::GetLocal => {
-                        let slot = Self::read_byte(chunk, &mut self.pc);
-                        self.push(self.stack[slot as usize]);
+                        let slot = Self::read_byte(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        );
+                        let val = current_frame!(self).get(&self.stack, slot as usize);
+                        self.push(val);
                     }
                     OpCode::SetLocal => {
-                        let slot = Self::read_byte(chunk, &mut self.pc);
-                        self.stack[slot as usize] = self.peek(0);
+                        let slot = Self::read_byte(
+                            unsafe { chunk.as_ref().unwrap() },
+                            &mut current_frame!(self).pc,
+                        );
+                        let val = self.peek(0);
+                        current_frame!(self).set(&mut self.stack, slot as usize, val);
                     }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
                         match val {
                             Value::Number(v) => *v = -*v,
                             _ => {
-                                self.runtime_error(chunk, "Operand must be a number.");
+                                self.runtime_error(
+                                    unsafe { chunk.as_ref().unwrap() },
+                                    unsafe { *pc_ptr },
+                                    "Operand must be a number.",
+                                );
                                 return InterpretResult::RuntimeError;
                             }
                         }
@@ -177,7 +272,8 @@ impl VM {
                             self.push(Value::Number(a + b));
                         } else {
                             self.runtime_error(
-                                chunk,
+                                unsafe { chunk.as_ref().unwrap() },
+                                unsafe { *pc_ptr },
                                 "Operands must be two numbers or two strings.",
                             );
                             return InterpretResult::RuntimeError;
@@ -202,7 +298,11 @@ impl VM {
                     }
                 },
                 None => {
-                    self.runtime_error(chunk, &format!("Unknown opcode: {}", opcode));
+                    self.runtime_error(
+                        unsafe { chunk.as_ref().unwrap() },
+                        unsafe { *pc_ptr },
+                        &format!("Unknown opcode: {}", opcode),
+                    );
                     return InterpretResult::RuntimeError;
                 }
             }
@@ -236,7 +336,7 @@ impl VM {
 
     /// Push a value to the stack of vm.
     pub fn push(&mut self, value: Value) {
-        if self.stack_top == STACK_SIZE {
+        if self.stack_top == STACK_MAX {
             panic!("Stack overflow!");
         }
         self.stack[self.stack_top] = value;
@@ -268,15 +368,15 @@ impl VM {
     }
 
     /// Print runtime error to console output.
-    pub fn runtime_error(&mut self, chunk: &Chunk, msg: &str) {
-        let line = chunk.get_line(self.pc);
+    pub fn runtime_error(&mut self, chunk: &Chunk, pc: usize, msg: &str) {
+        let line = chunk.get_line(pc);
         println!("line {}: Runtime error: {}", line, msg);
         self.reset_stack();
     }
 
     /// Reset the stack of vm.
     pub fn reset_stack(&mut self) {
-        self.stack = [Value::Nil; STACK_SIZE];
+        self.stack = [Value::Nil; STACK_MAX];
         self.stack_top = 0;
     }
 

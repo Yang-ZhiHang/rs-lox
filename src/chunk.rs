@@ -77,14 +77,12 @@ impl Value {
     /// Return a copy of `String` if the `Value::Object` is `ObjString`
     /// else error.
     pub fn as_string(&self, heap: &Heap) -> Result<String, &'static str> {
-        if let Value::Object(obj) = self {
-            #[allow(irrefutable_let_patterns)]
-            // TODO: remove the `allow` attr when ObjData more than one.
-            if let ObjData::String(obj) = heap.get(obj.val) {
-                let s = String::from(&obj.value);
-                return Ok(s);
-            };
-        }
+        if let Value::Object(obj_id) = self
+            && let ObjData::String(obj) = heap.get(*obj_id)
+        {
+            let s = String::from(&obj.value);
+            return Ok(s);
+        };
         Err("Operand must be a string.")
     }
 
@@ -104,10 +102,8 @@ impl Value {
     /// Return true if the value is `Value::Object` else false.
     pub fn is_string(&self, heap: &Heap) -> bool {
         match self {
-            Value::Object(obj) => {
-                #[allow(irrefutable_let_patterns)]
-                // TODO: remove the `allow` attr when ObjData more than one.
-                if let ObjData::String(_) = heap.get(obj.val) {
+            Value::Object(obj_id) => {
+                if let ObjData::String(_) = heap.get(*obj_id) {
                     return true;
                 };
                 false
@@ -154,7 +150,7 @@ impl Value {
             Value::Nil => "nil".to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Number(n) => n.to_string(),
-            Value::Object(obj_id) => heap.get(obj_id.val).to_string(),
+            Value::Object(obj_id) => heap.get(*obj_id).to_string(),
         }
     }
 }

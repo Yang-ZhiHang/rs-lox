@@ -17,7 +17,7 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
     match val {
         Value::Object(obj_id) => {
-            println!("{}\t\"{}\"", opcode, heap.get(obj_id.val));
+            println!("{}\t\"{}\"", opcode, heap.get(obj_id));
         }
         _ => {
             println!("{}\t{}", opcode, val);
@@ -41,6 +41,11 @@ pub fn jump_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
     // {:<8} to avoid the alignment problem of output information caused by overly short opcode characters like `Jump`.
     println!("{:<8}\t<offset {}>", opcode, jump_offset);
     offset + 3
+}
+
+/// Print operation code with function name to the console.
+pub fn func_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
+    unimplemented!()
 }
 
 /// Disassemble chunk.

@@ -3,7 +3,7 @@ use crate::common::disassemble;
 use crate::{
     chunk::{Chunk, IntoU8, OpCode, Value},
     heap::Heap,
-    object::ObjId,
+    object::{FunctionType, ObjData, ObjFunction, ObjId},
     tokenizer::{Token, TokenType, Tokenizer},
 };
 
@@ -32,6 +32,9 @@ pub const MAX_LOCAL_SIZE: usize = 256;
 
 /// The context for storing local variable, function, closure.
 pub struct Context {
+    /// Use ObjId instead of reference to make the `func` a "reference".
+    func: ObjId,
+    func_type: FunctionType,
     /// Stack array stores local variables.
     locals: [Option<Local>; MAX_LOCAL_SIZE],
     /// Amount of local variables.
@@ -40,22 +43,23 @@ pub struct Context {
     scope_depth: usize,
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Context {
     /// Create `Context` with empty local variable array.
     ///
     /// `scope_depth` defaults to 0.
-    pub fn new() -> Self {
-        Self {
+    pub fn new(heap: &mut Heap) -> Self {
+        let global_func = heap.write_func("<Global>", 0);
+        let mut ctx = Self {
+            func: ObjId::new(global_func),
+            func_type: FunctionType::Script,
             locals: [const { None }; MAX_LOCAL_SIZE],
             local_count: 0,
             scope_depth: 0,
-        }
+        };
+        // Q: Why the slot 0 is used for internal use for vm.
+        ctx.locals[0] = Some(Local::new(Token::default(), Some(0), false));
+        ctx.local_count += 1;
+        ctx
     }
 }
 
@@ -195,6 +199,7 @@ pub struct Parser<'src, 'heap> {
 
 impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn new(tokenizer: Tokenizer<'src>, heap: &'heap mut Heap) -> Self {
+        let ctx = Context::new(heap);
         Self {
             tokenizer,
             heap,
@@ -203,7 +208,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             cur: Token::default(),
             had_error: false,
             panic_mode: false,
-            ctx: Context::new(),
+            ctx,
         }
     }
 
@@ -234,16 +239,16 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// Compile source code into byte code.
-    pub fn compile(mut self) -> Result<Chunk, CompileError> {
+    pub fn compile(mut self) -> Option<ObjId> {
         self.advance();
         while !self.next(TokenType::EOF) {
             self.declaration();
         }
-        self.end_compile();
+        let func_obj_id = self.end_compile();
         if self.had_error {
-            Err(CompileError::SyntaxError)
+            None
         } else {
-            Ok(self.chunk)
+            Some(func_obj_id)
         }
     }
 
@@ -623,11 +628,23 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// Write return operation code to chunk.
-    pub fn end_compile(&mut self) {
+    pub fn end_compile(&mut self) -> ObjId {
         self.emit_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
-            disassemble(&self.chunk, self.heap, "dev");
+            disassemble(self.current_chunk(), self.heap, "dev");
+        }
+        self.ctx.func
+    }
+
+    /// Return the current byte chunk.
+    ///
+    /// If the current context is function, it will return the byte chunk of function else global one.
+    pub fn current_chunk(&self) -> &Chunk {
+        if let ObjData::Function(obj_func) = self.heap.get(self.ctx.func) {
+            return &obj_func.chunk;
+        } else {
+            unimplemented!()
         }
     }
 
@@ -637,9 +654,9 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn identifier_constant(&mut self, t: Token) -> usize {
         let slice = t.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
-        let obj_idx = self.heap.write_string(s);
+        let idx = self.heap.write_string(s);
         self.chunk
-            .write_constant(Value::Object(ObjId::new(obj_idx)))
+            .write_constant(Value::Object(ObjId::new(idx)))
     }
 
     /// Define a global variable
@@ -751,7 +768,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         // Extract the code block into `named_variable` to reuse it at switch clause.
         self.named_variable(assignable, &t);
     }
-    
+
     /// Judge if the variable is local variable or global and emit operation code.
     pub fn named_variable(&mut self, assignable: bool, t: &Token) {
         let idx;

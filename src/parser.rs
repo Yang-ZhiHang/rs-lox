@@ -71,7 +71,7 @@ impl Context {
 }
 
 /// Function pointer type for prefix/infix parse functions.
-type ParseFn<'src, 'heap> = fn(&mut Parser<'src, 'heap>, bool);
+type ParseFn<'heap> = fn(&mut Parser<'heap>, bool);
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub enum Precedence {
@@ -111,16 +111,16 @@ impl Precedence {
 }
 
 /// The parse rule of Pratt parser.
-pub struct ParseRule<'src, 'heap> {
-    pub prefix: Option<ParseFn<'src, 'heap>>,
-    pub infix: Option<ParseFn<'src, 'heap>>,
+pub struct ParseRule<'heap> {
+    pub prefix: Option<ParseFn<'heap>>,
+    pub infix: Option<ParseFn<'heap>>,
     pub precedence: Precedence,
 }
 
-impl<'src, 'heap> ParseRule<'src, 'heap> {
+impl<'heap> ParseRule<'heap> {
     fn new(
-        prefix: Option<ParseFn<'src, 'heap>>,
-        infix: Option<ParseFn<'src, 'heap>>,
+        prefix: Option<ParseFn<'heap>>,
+        infix: Option<ParseFn<'heap>>,
         precedence: Precedence,
     ) -> Self {
         Self {
@@ -133,9 +133,9 @@ impl<'src, 'heap> ParseRule<'src, 'heap> {
 
 /// Returns the parse rule for the given token type.
 /// Using a `match` instead of a static array avoids lifetime and fn-pointer coercion
-/// issues that arise from `Parser<'src>` carrying a lifetime parameter.
+/// issues that arise from `Parser` carrying a lifetime parameter.
 #[rustfmt::skip]
-pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
+pub fn get_rule<'heap>(tt: TokenType) -> ParseRule<'heap> {
     match tt {
         TokenType::LeftParen    => ParseRule::new(Some(Parser::grouping), Some(Parser::call),   Precedence::Call),
         TokenType::RightParen   => ParseRule::new(None,                   None,                 Precedence::None),
@@ -188,8 +188,8 @@ pub enum CompileError {
     SyntaxError,
 }
 
-pub struct Parser<'src, 'heap> {
-    tokenizer: Tokenizer<'src>,
+pub struct Parser<'heap> {
+    tokenizer: Tokenizer,
     heap: &'heap mut Heap,
     /// The container to store byte code when compiling.
     pub chunk: Chunk,
@@ -205,8 +205,8 @@ pub struct Parser<'src, 'heap> {
     ctx: Option<Context>,
 }
 
-impl<'src, 'heap> Parser<'src, 'heap> {
-    pub fn new(tokenizer: Tokenizer<'src>, heap: &'heap mut Heap) -> Self {
+impl<'heap> Parser<'heap> {
+    pub fn new(tokenizer: Tokenizer, heap: &'heap mut Heap) -> Self {
         let name_idx = heap.write_string("<Global>");
         let ctx = Context::new(heap, name_idx, FunctionType::Global);
         Self {

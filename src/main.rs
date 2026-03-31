@@ -6,7 +6,7 @@ use lox::{file::read_file, parser::Parser, tokenizer::Tokenizer, vm::VM};
 /// For streaming parser, it uses less memory than Tree-walking parser.
 pub fn run_file(vm: &mut VM, path: &str) {
     let source = read_file(path);
-    let tokenizer = Tokenizer::new(&source);
+    let tokenizer = Tokenizer::new(source);
     let parser = Parser::new(tokenizer, &mut vm.heap);
     match parser.compile() {
         Some(func_obj_idx) => {

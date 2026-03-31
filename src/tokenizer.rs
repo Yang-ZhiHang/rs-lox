@@ -37,6 +37,7 @@ impl Token {
     }
 }
 
+#[rustfmt::skip]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
     // Pair
@@ -45,58 +46,24 @@ pub enum TokenType {
     LeftBrace,  // '{'
     RightBrace, // '}'
     // Single character
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    Colon,
-    Semicolon,
-    Star,
-    Bang,
-    Equal,
-    Less,
-    Greater,
-    Slash,
+    Comma, Dot, Minus, Plus, Colon, Semicolon, Star, Bang, Equal, Less, Greater, Slash,
     // Two character
-    BangEqual,
-    LessEqual,
-    GreaterEqual,
-    EqualEqual,
+    BangEqual, LessEqual, GreaterEqual, EqualEqual,
     // Literal
-    String,
-    Identifier,
-    Number,
+    String, Identifier, Number,
     // Keywords
-    And,
-    Class,
-    Else,
-    False,
-    For,
-    Fun,
-    If,
-    Nil,
-    Or,
-    Print,
-    Return,
-    Super,
-    This,
-    True,
-    Let,
-    While,
-    Switch,
-    Case,
-    Default,
+    And, Class, Else, False, For, Fun, If, Nil, Or, Print, Return, Super, This, True, Let,
+    While, Switch, Case, Default,
     // Others
-    Error(&'static str),
-    EOF,
+    Error(&'static str), EOF,
 }
 
 /// The lifetime of `source` as same as the tokenizer.
-pub struct Tokenizer<'src> {
+pub struct Tokenizer {
     /// The source code string.
-    src: &'src [u8],
+    src: String,
+    #[cfg(debug_assertions)]
     /// The array that stores each token in `source`.
-    // This member is used in unittest.
     tokens: Vec<Token>,
     /// The start index of current token. (Index start from 1)
     start: usize,
@@ -110,11 +77,11 @@ pub struct Tokenizer<'src> {
     col: usize,
 }
 
-impl<'src> Tokenizer<'src> {
+impl Tokenizer {
     /// Create a tokenizer in initial state.
-    pub fn new(source: &'src str) -> Self {
+    pub fn new(source: String) -> Self {
         Self {
-            src: source.as_bytes(),
+            src: source,
             tokens: vec![],
             start: 0,
             current: 0,
@@ -125,8 +92,8 @@ impl<'src> Tokenizer<'src> {
     }
 
     /// Getter of member `source`.
-    pub fn source(&self) -> &'src [u8] {
-        self.src
+    pub fn source(&self) -> &[u8] {
+        self.src.as_bytes()
     }
 
     /// Scan each character and return a token.
@@ -224,6 +191,7 @@ impl<'src> Tokenizer<'src> {
         self.col = 0;
     }
 
+    #[cfg(debug_assertions)]
     /// Scan the source code and return list of tokens.
     pub fn scan_tokens(&mut self) -> Vec<Token> {
         while !self.is_at_end() {
@@ -272,14 +240,14 @@ impl<'src> Tokenizer<'src> {
 
     /// Judge if we have scanned to the last character of the source code.
     pub fn is_at_end(&self) -> bool {
-        self.current >= self.src.len()
+        self.current >= self.source().len()
     }
 
     /// `current` will be at the next index and return the character at the former index.
     pub fn advance(&mut self) -> char {
         self.current += 1;
         self.col += 1;
-        self.src[self.current - 1] as char
+        self.source()[self.current - 1] as char
     }
 
     /// Judge if the next token equals to variable `c`. If equals, `current` will increase.
@@ -287,7 +255,7 @@ impl<'src> Tokenizer<'src> {
         if self.is_at_end() {
             return false;
         }
-        if self.src[self.current] as char == c {
+        if self.source()[self.current] as char == c {
             self.advance();
             return true;
         }
@@ -297,10 +265,10 @@ impl<'src> Tokenizer<'src> {
     /// Get the character behind `current` in `n` indexes. `current` will not increase.
     pub fn peek(&self, n: usize) -> char {
         let idx = self.current + n;
-        if idx >= self.src.len() {
+        if idx >= self.source().len() {
             return '\0';
         }
-        self.src[idx] as char
+        self.source()[idx] as char
     }
 
     /// Skip a `//` line comment, consuming until end of line.
@@ -364,16 +332,16 @@ impl<'src> Tokenizer<'src> {
 
     /// Judging the identifier token type according to the current token.
     pub fn identifier_type(&mut self) -> TokenType {
-        match self.src[self.start] as char {
+        match self.source()[self.start] as char {
             'a' => self.check_keyword(1, 2, "nd", TokenType::And),
-            'c' => match self.src[self.start + 1] as char {
+            'c' => match self.source()[self.start + 1] as char {
                 'a' => self.check_keyword(2, 2, "se", TokenType::Case),
                 'l' => self.check_keyword(2, 3, "ass", TokenType::Class),
                 _ => TokenType::Identifier,
             },
             'd' => self.check_keyword(1, 6, "efault", TokenType::Default),
             'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
-            'f' => match self.src[self.start + 1] as char {
+            'f' => match self.source()[self.start + 1] as char {
                 'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                 'o' => self.check_keyword(2, 1, "r", TokenType::For),
                 'u' => self.check_keyword(2, 1, "n", TokenType::Fun),
@@ -385,12 +353,12 @@ impl<'src> Tokenizer<'src> {
             'o' => self.check_keyword(1, 1, "r", TokenType::Or),
             'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
             'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
-            's' => match self.src[self.start + 1] as char {
+            's' => match self.source()[self.start + 1] as char {
                 'w' => self.check_keyword(2, 4, "itch", TokenType::Switch),
                 'u' => self.check_keyword(2, 4, "uper", TokenType::Super),
                 _ => TokenType::Identifier,
             },
-            't' => match self.src[self.start + 1] as char {
+            't' => match self.source()[self.start + 1] as char {
                 'h' => self.check_keyword(2, 2, "is", TokenType::This),
                 'r' => self.check_keyword(2, 2, "ue", TokenType::True),
                 _ => TokenType::Identifier,
@@ -408,8 +376,8 @@ impl<'src> Tokenizer<'src> {
         pattern: &str,
         tt: TokenType,
     ) -> TokenType {
-        if self.start + start + len < self.src.len()
-            && &self.src[self.start + start..self.start + start + len] == pattern.as_bytes()
+        if self.start + start + len < self.source().len()
+            && &self.source()[self.start + start..self.start + start + len] == pattern.as_bytes()
         {
             self.current = self.start + start + len;
             tt
@@ -427,7 +395,7 @@ mod tests {
             #[test]
             fn $name() {
                 for (src, expected) in $cases {
-                    let mut tokenizer = Tokenizer::new(src);
+                    let mut tokenizer = Tokenizer::new(String::from(src));
                     let tokens = tokenizer.scan_tokens();
                     assert_eq!(token_types(&tokens), expected);
                 }
@@ -440,11 +408,15 @@ mod tests {
         tokens.iter().map(|t| t.token_type).collect()
     }
 
+    #[rustfmt::skip]
     test_tokenizer!(
         test_tokens,
         [
             // Empty source should produce only EOF token.
-            ("", vec![TokenType::EOF]),
+            (
+                "",
+                vec![TokenType::EOF]
+            ),
             // Single character tokens.
             (
                 "(){},.-+;*=<>!",
@@ -482,7 +454,10 @@ mod tests {
                 vec![TokenType::String, TokenType::EOF]
             ),
             // Comment should be ignored.
-            ("// this is a comment\n", vec![TokenType::EOF])
+            (
+                "// this is a comment\n",
+                vec![TokenType::EOF]
+            )
         ]
     );
 }

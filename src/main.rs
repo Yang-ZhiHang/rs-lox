@@ -9,9 +9,8 @@ pub fn run_file(vm: &mut VM, path: &str) {
     let tokenizer = Tokenizer::new(&source);
     let parser = Parser::new(tokenizer, &mut vm.heap);
     match parser.compile() {
-        Some(_) => {
-            unimplemented!()
-            // vm.interpret(&chunk);
+        Some(func_obj_idx) => {
+            vm.interpret(func_obj_idx);
         }
         None => {
             eprintln!("Error compiling source code.");

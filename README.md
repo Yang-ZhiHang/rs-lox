@@ -18,11 +18,14 @@ For this interpreter learning project, we don't strictly obey the official gramm
 - [x] Virtual machine based interpreter.
 - [x] Instruction set based on stack (A better performance one is based on register).
 
-## Future work
-
-- [ ] Refactor vm to register-based and compare the performance diff.
-
 ## Grammar
+
+Here, we support: 
+
+- variable declaration & assignment
+- logical operators
+- control flow (if, while, for, switch)
+- function statement
 
 ### Variable declaration & assignment
 
@@ -31,6 +34,15 @@ let a = 1;
 let b = 2;
 let c = a + b;
 print c + 1; // 4
+```
+
+### Logical operators
+
+```
+let a = 2;
+if a > 1 and a < 3 {
+  print "a is greater than 1 and b is less than 3";
+}
 ```
 
 ### Control flow
@@ -66,15 +78,6 @@ for (let i = 0; i < 10; i = i + 1) {
 }
 ```
 
-#### Logical operators
-
-```
-let a = 2;
-if a > 1 and a < 3 {
-  print "a is greater than 1 and b is less than 3";
-}
-```
-
 #### Switch statement
 
 ```
@@ -87,6 +90,16 @@ switch a {
   default:
     print "a is not 1 or 2";
 }
+```
+
+### Function statement
+
+```
+fun sum(a, b, c) {
+  return a + b + c;
+}
+
+print 1 + 2 + sum(5, 10, 15);
 ```
 
 ## References

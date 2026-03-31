@@ -4,6 +4,7 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
     heap::Heap,
+    object::ObjData,
 };
 
 /// Just print the operation code name to the console.
@@ -16,9 +17,16 @@ pub fn simple_instruction(_chunk: &Chunk, offset: usize, opcode: OpCode) -> usiz
 pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: OpCode) -> usize {
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
     match val {
-        Value::Object(obj_id) => {
-            println!("{}\t\"{}\"", opcode, heap.get(obj_id));
-        }
+        Value::Object(obj_idx) => match heap.get(obj_idx) {
+            ObjData::String(obj_string) => {
+                println!("{}\t\"{}\"", opcode, obj_string);
+            }
+            ObjData::Function(obj_func) => {
+                println!("{}\t<fn {}>", opcode, unsafe {
+                    heap.get_string_unchecked(obj_func.name)
+                });
+            }
+        },
         _ => {
             println!("{}\t{}", opcode, val);
         }
@@ -29,7 +37,14 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
 /// Print operation code with index to the console.
 pub fn index_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
     let idx = chunk.code()[offset + 1];
-    println!("{}\t<index {}>", opcode, idx);
+    match opcode {
+        OpCode::Call => {
+            println!("{:<8}\targ*{}", opcode, idx);
+        }
+        _ => {
+            println!("{:<8}\t<index {}>", opcode, idx);
+        }
+    }
     offset + 2
 }
 
@@ -43,21 +58,17 @@ pub fn jump_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
     offset + 3
 }
 
-/// Print operation code with function name to the console.
-pub fn func_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
-    unimplemented!()
-}
-
 /// Disassemble chunk.
 pub fn disassemble(chunk: &Chunk, heap: &Heap, name: &str) {
     // Print the name title so that we know which chunk we are looking.
-    println!("Disassemble '{}' result:", name);
+    println!("Disassemble '{}':", name);
     println!("Offset\tLine\tOpcode");
     let mut offset = 0;
     // Execute each instruction (the size of instruction may be different).
     while offset < chunk.code().len() {
         offset = disassemble_instruction(chunk, heap, offset);
     }
+    println!()
 }
 
 /// Disassemble and execute instruction with an offset in the chunk.
@@ -79,7 +90,9 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
             OpCode::JumpIfFalse | OpCode::Jump | OpCode::Loop => {
                 jump_instruction(chunk, offset, opcode)
             }
-            OpCode::GetLocal | OpCode::SetLocal => index_instruction(chunk, offset, opcode),
+            OpCode::GetLocal | OpCode::SetLocal | OpCode::Call => {
+                index_instruction(chunk, offset, opcode)
+            }
             _ => simple_instruction(chunk, offset, opcode),
         },
         None => {

@@ -3,12 +3,13 @@ use crate::common::disassemble;
 use crate::{
     chunk::{Chunk, IntoU8, OpCode, Value},
     heap::Heap,
-    object::{FunctionType, ObjData, ObjFunction, ObjId},
+    object::{FunctionType, ObjData, ObjFunction, ObjIndex},
     tokenizer::{Token, TokenType, Tokenizer},
 };
 
-#[allow(unused)]
 /// Local variable.
+#[allow(unused)]
+#[derive(Clone)]
 pub struct Local {
     token: Token,
     /// The scope level of local variable.
@@ -31,9 +32,14 @@ impl Local {
 pub const MAX_LOCAL_SIZE: usize = 256;
 
 /// The context for storing local variable, function, closure.
+#[derive(Clone)]
+#[allow(unused)]
 pub struct Context {
-    /// Use ObjId instead of reference to make the `func` a "reference".
-    func: ObjId,
+    /// The context of caller function (current one is callee).
+    caller: Option<Box<Context>>,
+    /// Use ObjId instead of reference to make the `func` a unsafe reference.
+    func: ObjIndex,
+    /// The current function type.
     func_type: FunctionType,
     /// Stack array stores local variables.
     locals: [Option<Local>; MAX_LOCAL_SIZE],
@@ -47,16 +53,17 @@ impl Context {
     /// Create `Context` with empty local variable array.
     ///
     /// `scope_depth` defaults to 0.
-    pub fn new(heap: &mut Heap) -> Self {
-        let global_func = heap.write_func("<Global>", 0);
+    pub fn new(heap: &mut Heap, name_idx: ObjIndex, func_type: FunctionType) -> Self {
+        let global_func = heap.write_func(name_idx, 0);
         let mut ctx = Self {
-            func: ObjId::new(global_func),
-            func_type: FunctionType::Script,
+            caller: None,
+            func: ObjIndex::new(global_func),
+            func_type,
             locals: [const { None }; MAX_LOCAL_SIZE],
             local_count: 0,
             scope_depth: 0,
         };
-        // Q: Why the slot 0 is used for internal use for vm.
+        // The slot 0 is used for storing function return address.
         ctx.locals[0] = Some(Local::new(Token::default(), Some(0), false));
         ctx.local_count += 1;
         ctx
@@ -130,7 +137,7 @@ impl<'src, 'heap> ParseRule<'src, 'heap> {
 #[rustfmt::skip]
 pub fn get_rule<'src, 'heap>(tt: TokenType) -> ParseRule<'src, 'heap> {
     match tt {
-        TokenType::LeftParen    => ParseRule::new(Some(Parser::grouping), None,                 Precedence::None),
+        TokenType::LeftParen    => ParseRule::new(Some(Parser::grouping), Some(Parser::call),   Precedence::Call),
         TokenType::RightParen   => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::LeftBrace    => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::RightBrace   => ParseRule::new(None,                   None,                 Precedence::None),
@@ -194,12 +201,14 @@ pub struct Parser<'src, 'heap> {
     /// Set true to avoid error cascade.
     panic_mode: bool,
     /// Context to store information of local variable, function and enclosure.
-    ctx: Context,
+    /// The context will be `None` after the `end_compile` in global scope.
+    ctx: Option<Context>,
 }
 
 impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn new(tokenizer: Tokenizer<'src>, heap: &'heap mut Heap) -> Self {
-        let ctx = Context::new(heap);
+        let name_idx = heap.write_string("<Global>");
+        let ctx = Context::new(heap, name_idx, FunctionType::Global);
         Self {
             tokenizer,
             heap,
@@ -208,8 +217,18 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             cur: Token::default(),
             had_error: false,
             panic_mode: false,
-            ctx,
+            ctx: Some(ctx),
         }
+    }
+
+    /// Return a immutable reference of context.
+    pub fn ctx(&self) -> &Context {
+        self.ctx.as_ref().unwrap()
+    }
+
+    /// Return a mutable reference of context.
+    pub fn ctx_mut(&mut self) -> &mut Context {
+        self.ctx.as_mut().unwrap()
     }
 
     /// Start single-step token scanning and detect error.
@@ -239,7 +258,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// Compile source code into byte code.
-    pub fn compile(mut self) -> Option<ObjId> {
+    pub fn compile(mut self) -> Option<ObjIndex> {
         self.advance();
         while !self.next(TokenType::EOF) {
             self.declaration();
@@ -293,6 +312,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.had_error = true;
     }
 
+    /// Parse a declaration.
     pub fn declaration(&mut self) {
         if self.next(TokenType::Let) {
             self.var_declaration();
@@ -306,6 +326,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         }
     }
 
+    /// Parse a variable declaration.
     pub fn var_declaration(&mut self) {
         // 1. parse variable name
         let global = self.parse_variable("Expected variable name.");
@@ -321,14 +342,61 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.define_variable(global);
     }
 
-    pub fn fun_declaration(&self) {
-        unimplemented!()
+    /// Parse a function declaration.
+    pub fn fun_declaration(&mut self) {
+        let global = self.parse_variable("Expected function name");
+        self.mark_initialized();
+        self.function(global);
+        self.define_variable(global);
+    }
+
+    /// Parse a function body.
+    pub fn function(&mut self, global: usize) {
+        let name_obj_idx = match self.current_chunk().constants()[global] {
+            Value::Object(idx) => idx,
+            other => panic!("Expected Object, got {:?}", other),
+        };
+        let ctx = Context::new(self.heap, name_obj_idx, FunctionType::Function);
+        self.update_ctx(ctx);
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expected '(' after function name.");
+        if !self.check(TokenType::RightParen) {
+            let func_obj_idx = self.ctx().func;
+            let func: *mut ObjFunction = unsafe { self.heap.get_func_unchecked_mut(func_obj_idx) };
+            loop {
+                unsafe { (*func).arity += 1 };
+                if unsafe { (*func).arity } > 255 {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                }
+                let local = self.parse_variable("Expected variable name.");
+                self.define_variable(local);
+                if !self.next(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Expected ')' after parameter list.");
+        self.consume(
+            TokenType::LeftBrace,
+            "Expected '{' after function signature.",
+        );
+        self.block();
+        let func_obj_idx = self.end_compile();
+        self.emit_constant(Value::Object(func_obj_idx));
+    }
+    
+    /// Update current context according to the passing-in one.
+    pub fn update_ctx(&mut self, mut ctx: Context) {
+        // Caller will not be `None` unless meets the last `end_compile`.
+        let caller_ctx = self.ctx.take().unwrap();
+        ctx.caller = Some(Box::new(caller_ctx));
+        self.ctx = Some(ctx);
     }
 
     /// Declare a local variable. Return if current context is global.
     pub fn declare_variable(&mut self) {
         // We only declare local variable.
-        if self.ctx.scope_depth == 0 {
+        if self.ctx().scope_depth == 0 {
             return;
         }
         self.add_local(self.prev);
@@ -338,12 +406,12 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn add_local(&mut self, token: Token) {
         // Temporarily set `is_captured` to false.
         let local = Local::new(token, None, false);
-        let idx = self.ctx.local_count;
+        let idx = self.ctx().local_count;
         if idx >= MAX_LOCAL_SIZE {
             self.error_at_current("Too many local variables.");
         }
-        self.ctx.locals[idx] = Some(local);
-        self.ctx.local_count += 1;
+        self.ctx_mut().locals[idx] = Some(local);
+        self.ctx_mut().local_count += 1;
     }
 
     pub fn statement(&mut self) {
@@ -362,6 +430,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             self.for_statement();
         } else if self.next(TokenType::Switch) {
             self.switch_statement();
+        } else if self.next(TokenType::Return) {
+            self.return_statement();
         } else {
             self.expression_statement();
         }
@@ -405,7 +475,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// Parse a while statement.
     pub fn while_statement(&mut self) {
-        let loop_start = self.chunk.code().len();
+        let loop_start = self.current_chunk().code().len();
         // self.consume(TokenType::LeftParen, "Expected '(' of condition.");
         self.expression();
         // self.consume(TokenType::RightParen, "Expected ')' of condition.");
@@ -428,7 +498,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
             // Such as assignment clauses.
             self.expression_statement();
         }
-        let mut loop_start = self.chunk.code().len();
+        let mut loop_start = self.current_chunk().code().len();
         let mut exit_jump = None;
         if !self.next(TokenType::Semicolon) {
             self.expression();
@@ -439,7 +509,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         if !self.next(TokenType::RightParen) {
             // for body should execute before increase clause.
             let body_jump = self.emit_jump(OpCode::Jump);
-            let incr_clause = self.chunk.code().len();
+            let incr_clause = self.current_chunk().code().len();
             self.expression();
             self.emit_byte(OpCode::Pop);
             self.consume(TokenType::RightParen, "Expected ')' after increase clause.");
@@ -498,31 +568,46 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.end_scope();
     }
 
+    /// Parse a return statement.
+    pub fn return_statement(&mut self) {
+        if self.ctx().func_type == FunctionType::Global {
+            self.error_at_current("Can't return from top-level code.");
+            return;
+        }
+        if self.next(TokenType::Semicolon) {
+            self.emit_return();
+        } else {
+            self.expression();
+            self.consume(TokenType::Semicolon, "Expected ';'.");
+            self.emit_byte(OpCode::Return);
+        }
+    }
+
     /// Re-write jump offset to given index in byte code chunk.
     pub fn patch_jump(&mut self, from: usize) {
-        let offset = self.chunk.code().len() - from - 2;
+        let offset = self.current_chunk().code().len() - from - 2;
         if offset > u16::MAX as usize {
             panic!("Jump body too large.");
         }
-        self.chunk.code_mut()[from] = (offset >> 8) as u8;
-        self.chunk.code_mut()[from + 1] = offset as u8;
+        self.current_chunk_mut().code_mut()[from] = (offset >> 8) as u8;
+        self.current_chunk_mut().code_mut()[from + 1] = offset as u8;
     }
 
     /// Uses after enter a new function scope.
     ///
     /// Call this function after consumed token `{`.
     pub fn begin_scope(&mut self) {
-        self.ctx.scope_depth += 1;
+        self.ctx_mut().scope_depth += 1;
     }
 
     /// Uses before leave a new function scope.
     ///
     /// Call this function after consumed token `}`.
     pub fn end_scope(&mut self) {
-        self.ctx.scope_depth -= 1;
+        self.ctx_mut().scope_depth -= 1;
         // Pop the local variable from current stack frame.
-        while self.ctx.local_count > 0
-            && self.ctx.locals[self.ctx.local_count - 1]
+        while self.ctx().local_count > 0
+            && self.ctx().locals[self.ctx().local_count - 1]
                 .as_ref()
                 // Value will not be `None` because index is ranged between 0 and `local_count` - 1.
                 .unwrap()
@@ -530,14 +615,17 @@ impl<'src, 'heap> Parser<'src, 'heap> {
                 // Entering the function `end_scope`, all local variable would already been initialized.
                 // Which means `depth` will not be `None`.
                 .unwrap()
-                > self.ctx.scope_depth
+                > self.ctx().scope_depth
         {
             self.emit_byte(OpCode::Pop);
-            self.ctx.local_count -= 1;
+            self.ctx_mut().local_count -= 1;
         }
     }
 
-    /// Uses in code block.
+    /// Parse a code block.
+    ///
+    /// Call this function after consuming left brace.
+    /// It will consume right brace.
     pub fn block(&mut self) {
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::EOF) {
             self.declaration();
@@ -550,7 +638,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.declare_variable();
         // Avoid writing data into constant area of chunk if the identifier is local variable.
         // Also avoided in following context: at `define_variable()`.
-        if self.ctx.scope_depth > 0 {
+        if self.ctx().scope_depth > 0 {
             return 0;
         }
         self.identifier_constant(self.prev)
@@ -585,7 +673,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// Write a byte data to the chunk.
     pub fn emit_byte(&mut self, byte: impl IntoU8) {
-        self.chunk.write(byte, self.prev.line);
+        let line = self.prev.line;
+        self.current_chunk_mut().write(byte, line);
     }
 
     /// Write two bytes to the chunk.
@@ -597,12 +686,13 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// Write return operation code to chunk.
     pub fn emit_return(&mut self) {
+        self.emit_byte(OpCode::Nil);
         self.emit_byte(OpCode::Return);
     }
 
     /// Write operation code and constant value index (which from constant area) to the chunk.
     pub fn emit_constant(&mut self, constant: Value) {
-        let idx = self.chunk.write_constant(constant);
+        let idx = self.current_chunk_mut().write_constant(constant);
         self.emit_bytes(OpCode::Constant, idx);
     }
 
@@ -613,13 +703,13 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.emit_byte(op);
         self.emit_byte(0xff);
         self.emit_byte(0xff);
-        self.chunk.code().len() - 2
+        self.current_chunk().code().len() - 2
     }
 
     /// Write loop operation code.
     pub fn emit_loop(&mut self, start: usize) {
         self.emit_byte(OpCode::Loop);
-        let offset = self.chunk.code().len() - start + 2;
+        let offset = self.current_chunk().code().len() - start + 2;
         if offset > u16::MAX as usize {
             panic!("Loop body too large.");
         }
@@ -628,21 +718,40 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     }
 
     /// Write return operation code to chunk.
-    pub fn end_compile(&mut self) -> ObjId {
+    pub fn end_compile(&mut self) -> ObjIndex {
         self.emit_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
-            disassemble(self.current_chunk(), self.heap, "dev");
+            let func = unsafe { self.heap.get_func_unchecked(self.ctx().func) };
+            let func_name = unsafe { self.heap.get_string_unchecked(func.name) };
+            disassemble(self.current_chunk(), self.heap, &func_name.value);
         }
-        self.ctx.func
+        let func_obj_idx = self.ctx().func;
+        let current_ctx = self.ctx.take().unwrap();
+        match current_ctx.caller {
+            Some(caller_ctx) => self.ctx = Some(*caller_ctx),
+            None => self.ctx = None,
+        }
+        func_obj_idx
     }
 
-    /// Return the current byte chunk.
+    /// Return immutable reference of byte chunk of current function context.
     ///
     /// If the current context is function, it will return the byte chunk of function else global one.
     pub fn current_chunk(&self) -> &Chunk {
-        if let ObjData::Function(obj_func) = self.heap.get(self.ctx.func) {
-            return &obj_func.chunk;
+        if let ObjData::Function(obj_func) = self.heap.get(self.ctx().func) {
+            &obj_func.chunk
+        } else {
+            unimplemented!()
+        }
+    }
+
+    /// Return mutable reference of byte chunk of current function context.
+    ///
+    /// If the current context is function, it will return the byte chunk of function else global one.
+    pub fn current_chunk_mut(&mut self) -> &mut Chunk {
+        if let ObjData::Function(obj_func) = self.heap.get_mut(self.ctx().func) {
+            &mut obj_func.chunk
         } else {
             unimplemented!()
         }
@@ -654,16 +763,16 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     pub fn identifier_constant(&mut self, t: Token) -> usize {
         let slice = t.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
-        let idx = self.heap.write_string(s);
-        self.chunk
-            .write_constant(Value::Object(ObjId::new(idx)))
+        let obj_idx = self.heap.write_string(s);
+        self.current_chunk_mut()
+            .write_constant(Value::Object(obj_idx))
     }
 
     /// Define a global variable
     pub fn define_variable(&mut self, global: impl IntoU8) {
         // Avoid emit `DefineGlobal` into code area of chunk if the identifier is local variable.
         // Also avoided in previous context (`var_declaration()`): at `parse_variable()`.
-        if self.ctx.scope_depth > 0 {
+        if self.ctx().scope_depth > 0 {
             self.mark_initialized();
             return;
         }
@@ -672,11 +781,17 @@ impl<'src, 'heap> Parser<'src, 'heap> {
 
     /// Initialize the scope level `depth` of local variable.
     ///
-    /// This function should be called after an assignment.
+    /// - Local variable: this function should be called after an initializer.
+    /// - function: Just like variable, we will bind the function to global hash table if it's in the global scope.
+    ///   Else mark initialized before body parsed to support recursion.
     pub fn mark_initialized(&mut self) {
-        let idx = self.ctx.local_count - 1;
-        let depth = self.ctx.scope_depth;
-        self.ctx.locals[idx].as_mut().unwrap().depth = Some(depth);
+        // Mark is unecessary at global scope.
+        if self.ctx().scope_depth == 0 {
+            return;
+        }
+        let idx = self.ctx().local_count - 1;
+        let depth = self.ctx().scope_depth;
+        self.ctx_mut().locals[idx].as_mut().unwrap().depth = Some(depth);
     }
 
     /// The unary operator handling unit of Pratt parser.
@@ -691,10 +806,10 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         // Emit the operator instruction.
         match tt {
             TokenType::Minus => {
-                self.chunk.write(OpCode::Negate, line);
+                self.current_chunk_mut().write(OpCode::Negate, line);
             }
             TokenType::Bang => {
-                self.chunk.write(OpCode::Not, line);
+                self.current_chunk_mut().write(OpCode::Not, line);
             }
             _ => {}
         }
@@ -759,7 +874,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let obj_idx = self.heap.write_string(s);
-        self.emit_constant(Value::Object(ObjId::new(obj_idx)));
+        self.emit_constant(Value::Object(obj_idx));
     }
 
     /// The variable handling unit of Pratt parser.
@@ -794,16 +909,17 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     ///
     /// Returning the local idx in `Option` if exists else `None`.
     pub fn get_local_idx(&mut self, token: &Token) -> Option<usize> {
-        if self.ctx.scope_depth == 0 {
+        if self.ctx().scope_depth == 0 {
             return None;
         }
-        for (i, v) in self.ctx.locals.iter().enumerate() {
+        for (i, v) in self.ctx().locals.iter().enumerate() {
             if let Some(e) = v
                 && self.token_cmp(&e.token, token)
             {
-                // Only higher level scope are available.
+                // The variale ought to be initialized. (`depth` is not `None`)
                 if let Some(depth) = e.depth
-                    && depth <= self.ctx.scope_depth
+                    // Only higher level scope are available.
+                    && depth <= self.ctx().scope_depth
                 {
                     return Some(i);
                 }
@@ -818,6 +934,31 @@ impl<'src, 'heap> Parser<'src, 'heap> {
     /// This comparison method is a byte by byte comparison which will sacrifice some performance.
     pub fn token_cmp(&self, t1: &Token, t2: &Token) -> bool {
         t1.name(self.tokenizer.source()) == t2.name(self.tokenizer.source())
+    }
+
+    /// The call handling unit of Pratt parser.
+    pub fn call(&mut self, _assignable: bool) {
+        let arg_count = self.arg_list();
+        self.emit_bytes(OpCode::Call, arg_count);
+    }
+
+    /// Parse the argument list when calling function and return the argument count.
+    pub fn arg_list(&mut self) -> usize {
+        let mut arg_count = 0;
+        if !self.check(TokenType::RightParen) {
+            loop {
+                self.expression();
+                arg_count += 1;
+                if arg_count > 255 {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                }
+                if !self.next(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Missing ')'.");
+        arg_count
     }
 
     /// The and handling unit of Pratt parser.

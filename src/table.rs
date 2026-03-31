@@ -1,4 +1,4 @@
-use crate::{chunk::Value, object::ObjId};
+use crate::{chunk::Value, object::ObjIndex};
 
 const INIT_TABLE_SIZE: usize = 256;
 
@@ -23,12 +23,12 @@ impl EntryState {
 
 #[derive(Clone)]
 pub struct Entry {
-    pub k: ObjId,
+    pub k: ObjIndex,
     pub v: Value,
 }
 
 impl Entry {
-    pub fn new(k: ObjId, v: Value) -> Self {
+    pub fn new(k: ObjIndex, v: Value) -> Self {
         Self { k, v }
     }
 }
@@ -59,7 +59,7 @@ impl HashTable {
     }
 
     /// Find the index of given key `k` and return the index else return the first empty index.
-    pub fn find_index(table: &[EntryState], k: &ObjId, capacity: usize) -> Result<usize, usize> {
+    pub fn find_index(table: &[EntryState], k: &ObjIndex, capacity: usize) -> Result<usize, usize> {
         let mut idx = (k.hash % capacity as u64) as usize;
         loop {
             match &table[idx] {
@@ -72,7 +72,7 @@ impl HashTable {
     }
 
     /// Get a immutable reference of the value of the key `k`.
-    pub fn get(&self, k: &ObjId) -> Option<&Entry> {
+    pub fn get(&self, k: &ObjIndex) -> Option<&Entry> {
         match Self::find_index(&self.values, k, self.capacity) {
             Ok(idx) => match &self.values[idx] {
                 EntryState::Occupied(e) => Some(e),
@@ -85,7 +85,7 @@ impl HashTable {
     }
 
     /// Get a mutable reference of the value of the key `k`.
-    pub fn get_mut(&mut self, k: &ObjId) -> Option<&mut Entry> {
+    pub fn get_mut(&mut self, k: &ObjIndex) -> Option<&mut Entry> {
         match Self::find_index(&self.values, k, self.capacity) {
             Ok(idx) => match &mut self.values[idx] {
                 EntryState::Occupied(e) => Some(e),
@@ -98,7 +98,7 @@ impl HashTable {
     }
 
     /// Set the value of the key `k`.
-    pub fn set(&mut self, k: ObjId, v: Value) {
+    pub fn set(&mut self, k: ObjIndex, v: Value) {
         if let Some(e) = self.get_mut(&k) {
             e.v = v;
             return;
@@ -113,7 +113,7 @@ impl HashTable {
     }
 
     /// Delete the value of given key `k`.
-    pub fn del(&mut self, k: &ObjId) {
+    pub fn del(&mut self, k: &ObjIndex) {
         match Self::find_index(&self.values, k, self.capacity) {
             Ok(idx) => self.values[idx] = EntryState::Deleted,
             Err(_) => println!("The key {} not found.", k),
@@ -162,16 +162,15 @@ mod tests {
     use super::*;
     use crate::heap::Heap;
 
-    fn make_obj_id(s: &str, heap: &mut Heap) -> ObjId {
-        let obj_idx = heap.write_string(s);
-        ObjId::new(obj_idx)
+    fn make_obj_idx(s: &str, heap: &mut Heap) -> ObjIndex {
+        heap.write_string(s)
     }
 
     #[test]
     fn test_table_insert_and_get() {
         let mut table = HashTable::new();
         let mut heap = Heap::new();
-        let k1 = make_obj_id("hello", &mut heap);
+        let k1 = make_obj_idx("hello", &mut heap);
         let v1 = Value::Number(42.0);
 
         table.set(k1, v1);
@@ -179,19 +178,19 @@ mod tests {
         assert_eq!(table.count, 1);
 
         // Multiple insertions
-        table.set(make_obj_id("world", &mut heap), Value::Number(2.0));
+        table.set(make_obj_idx("world", &mut heap), Value::Number(2.0));
         assert_eq!(table.count, 2);
 
         // Nonexistent key
-        assert!(table.get(&make_obj_id("nonexistent", &mut heap)).is_none());
+        assert!(table.get(&make_obj_idx("nonexistent", &mut heap)).is_none());
     }
 
     #[test]
     fn test_table_delete_and_tombstones() {
         let mut table = HashTable::new();
         let mut heap = Heap::new();
-        let k1 = make_obj_id("key1", &mut heap);
-        let k2 = make_obj_id("key2", &mut heap);
+        let k1 = make_obj_idx("key1", &mut heap);
+        let k2 = make_obj_idx("key2", &mut heap);
 
         table.set(k1, Value::Number(1.0));
         table.set(k2, Value::Number(2.0));
@@ -204,7 +203,7 @@ mod tests {
 
         // Delete nonexistent key
         let initial_count = table.count;
-        table.del(&make_obj_id("nonexistent", &mut heap));
+        table.del(&make_obj_idx("nonexistent", &mut heap));
         assert_eq!(table.count, initial_count);
     }
 
@@ -216,13 +215,13 @@ mod tests {
         // Insert entries
         for i in 0..5 {
             let key = format!("key{}", i);
-            table.set(make_obj_id(&key, &mut heap), Value::Number(i as f64));
+            table.set(make_obj_idx(&key, &mut heap), Value::Number(i as f64));
         }
         assert_eq!(table.count, 5);
 
         // Delete some entries
-        table.del(&make_obj_id("key1", &mut heap));
-        table.del(&make_obj_id("key3", &mut heap));
+        table.del(&make_obj_idx("key1", &mut heap));
+        table.del(&make_obj_idx("key3", &mut heap));
 
         // Tombstones don't reduce count in current implementation
         assert_eq!(table.count, 5);
@@ -235,11 +234,11 @@ mod tests {
         assert_eq!(table.count, 3);
 
         // Verify we still can get the non-deleted entries
-        assert!(table.get(&make_obj_id("key0", &mut heap)).is_some());
-        assert!(table.get(&make_obj_id("key1", &mut heap)).is_none());
-        assert!(table.get(&make_obj_id("key2", &mut heap)).is_some());
-        assert!(table.get(&make_obj_id("key3", &mut heap)).is_none());
-        assert!(table.get(&make_obj_id("key4", &mut heap)).is_some());
+        assert!(table.get(&make_obj_idx("key0", &mut heap)).is_some());
+        assert!(table.get(&make_obj_idx("key1", &mut heap)).is_none());
+        assert!(table.get(&make_obj_idx("key2", &mut heap)).is_some());
+        assert!(table.get(&make_obj_idx("key3", &mut heap)).is_none());
+        assert!(table.get(&make_obj_idx("key4", &mut heap)).is_some());
     }
 
     #[test]
@@ -248,15 +247,15 @@ mod tests {
         let mut heap = Heap::new();
 
         // Insert multiple entries with same keys.
-        table.set(make_obj_id("key", &mut heap), Value::Number(1.0));
-        table.set(make_obj_id("key", &mut heap), Value::Number(2.0));
-        table.set(make_obj_id("key", &mut heap), Value::Number(3.0));
+        table.set(make_obj_idx("key", &mut heap), Value::Number(1.0));
+        table.set(make_obj_idx("key", &mut heap), Value::Number(2.0));
+        table.set(make_obj_idx("key", &mut heap), Value::Number(3.0));
 
         // Should only have 1 entry.
         assert_eq!(table.count, 1);
 
         // The value should be the last one inserted.
-        let result = table.get(&make_obj_id("key", &mut heap));
+        let result = table.get(&make_obj_idx("key", &mut heap));
         assert!(result.is_some());
         assert_eq!(result.unwrap().v, Value::Number(3.0));
     }

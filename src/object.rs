@@ -3,15 +3,21 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
 };
 
-use crate::{chunk::Chunk, heap::Heap};
+use crate::chunk::Chunk;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct ObjId {
+pub struct ObjIndex {
     pub val: usize,
     pub hash: u64,
 }
 
-impl ObjId {
+impl From<usize> for ObjIndex {
+    fn from(value: usize) -> Self {
+        Self::new(value)
+    }
+}
+
+impl ObjIndex {
     pub fn new(id: usize) -> Self {
         let mut h = DefaultHasher::new();
         id.hash(&mut h);
@@ -22,9 +28,9 @@ impl ObjId {
     }
 }
 
-impl Display for ObjId {
+impl Display for ObjIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.val)
+        write!(f, "{:06}", self.val)
     }
 }
 
@@ -68,25 +74,26 @@ impl ObjString {
 }
 
 pub struct ObjFunction {
-    pub name: ObjId,
+    pub name: ObjIndex,
     pub chunk: Chunk,
     pub arity: usize,
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum FunctionType {
     /// The type used to represent the global scope
-    Script,
+    Global,
     Function,
 }
 
 impl Display for ObjFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<fn {}>", self.name)
+        write!(f, "<obj {}>", self.name)
     }
 }
 
 impl ObjFunction {
-    pub fn new(name: ObjId, arity: usize) -> Self {
+    pub fn new(name: ObjIndex, arity: usize) -> Self {
         Self {
             name,
             chunk: Chunk::new(),

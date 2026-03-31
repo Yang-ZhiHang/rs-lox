@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     heap::Heap,
-    object::{ObjData, ObjId},
+    object::{ObjData, ObjIndex},
 };
 
 // Use strum to automatically distribute number for enum member. It's useful when we
@@ -11,7 +11,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, strum::Display, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
-    Return, Print, Pop,
+    Return, Print, Pop, Call,
     /// Condition
     JumpIfFalse, Jump, Loop,
     /// Variable
@@ -53,7 +53,7 @@ pub enum Value {
     ///
     /// `ObjId` (an index into the VM's `Heap`) is stored rather than
     /// `ObjData` so that `Value` remains `Copy` trait.
-    Object(ObjId),
+    Object(ObjIndex),
 }
 
 impl Value {
@@ -77,8 +77,8 @@ impl Value {
     /// Return a copy of `String` if the `Value::Object` is `ObjString`
     /// else error.
     pub fn as_string(&self, heap: &Heap) -> Result<String, &'static str> {
-        if let Value::Object(obj_id) = self
-            && let ObjData::String(obj) = heap.get(*obj_id)
+        if let Value::Object(obj_idx) = self
+            && let ObjData::String(obj) = heap.get(*obj_idx)
         {
             let s = String::from(&obj.value);
             return Ok(s);
@@ -102,8 +102,8 @@ impl Value {
     /// Return true if the value is `Value::Object` else false.
     pub fn is_string(&self, heap: &Heap) -> bool {
         match self {
-            Value::Object(obj_id) => {
-                if let ObjData::String(_) = heap.get(*obj_id) {
+            Value::Object(obj_idx) => {
+                if let ObjData::String(_) = heap.get(*obj_idx) {
                     return true;
                 };
                 false
@@ -150,7 +150,7 @@ impl Value {
             Value::Nil => "nil".to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Number(n) => n.to_string(),
-            Value::Object(obj_id) => heap.get(*obj_id).to_string(),
+            Value::Object(obj_idx) => heap.get(*obj_idx).to_string(),
         }
     }
 }
@@ -161,7 +161,7 @@ impl Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Number(n) => write!(f, "{}", n),
-            Value::Object(obj_id) => write!(f, "<obj {}>", obj_id.val),
+            Value::Object(obj_idx) => write!(f, "<obj {}>", obj_idx.val),
         }
     }
 }
@@ -228,7 +228,8 @@ impl Chunk {
                 return pair.0;
             }
         }
-        panic!("Unavailable offset.")
+        // panic!("Unavailable offset {}.", offset);
+        0
     }
 
     /// Write a byte to the chunk.

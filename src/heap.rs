@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::object::{ObjData, ObjFunction, ObjId, ObjString};
+use crate::object::{ObjData, ObjFunction, ObjIndex, ObjString};
 
 pub struct Heap {
     /// The list of object.
@@ -26,21 +26,55 @@ impl Heap {
     }
 
     /// Get a immutable reference of object by index.
-    pub fn get(&self, idx: ObjId) -> &ObjData {
+    pub fn get(&self, idx: ObjIndex) -> &ObjData {
         &self.objs[idx.val]
     }
 
     /// Get a mutable reference of object by index.
-    pub fn get_mut(&mut self, idx: ObjId) -> &mut ObjData {
+    pub fn get_mut(&mut self, idx: ObjIndex) -> &mut ObjData {
         &mut self.objs[idx.val]
     }
 
     #[inline(always)]
-    pub unsafe fn get_func_unchecked(&self, id: ObjId) -> &ObjFunction {
+    /// Return a immutable reference of function object.
+    /// 
+    /// # Safety
+    ///
+    /// Call this function only when passing in a function object index.
+    /// Index will not be larger than length of heap. Boundary check are unecessary.
+    pub unsafe fn get_func_unchecked(&self, idx: ObjIndex) -> &ObjFunction {
         // Use `unchecked` to avoid boundary check which will return `Option`.
-        match unsafe { self.objs.get_unchecked(id.val) } {
+        match unsafe { self.objs.get_unchecked(idx.val) } {
             // Match `ObjFunction` from `ObjData`.
             ObjData::Function(f) => f,
+            _ => unreachable!(),
+        }
+    }
+    
+    #[inline(always)]
+    /// Return a mutable reference of function object.
+    /// 
+    /// # Safety
+    ///
+    /// Call this function only when passing in a function object index.
+    /// Index will not be larger than length of heap. Boundary check are unecessary.
+    pub unsafe fn get_func_unchecked_mut(&mut self, idx: ObjIndex) -> &mut ObjFunction {
+        // Use `unchecked` to avoid boundary check which will return `Option`.
+        match unsafe { self.objs.get_unchecked_mut(idx.val) } {
+            // Match `ObjFunction` from `ObjData`.
+            ObjData::Function(f) => f,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    /// # Safety
+    ///
+    /// Call this function only when passing in a string object index.
+    /// Index will not be larger than length of heap. Boundary check are unecessary.
+    pub unsafe fn get_string_unchecked(&self, idx: ObjIndex) -> &ObjString {
+        match unsafe { self.objs.get_unchecked(idx.val) } {
+            ObjData::String(s) => s,
             _ => unreachable!(),
         }
     }
@@ -54,20 +88,19 @@ impl Heap {
     /// Write the string object into heap and return the index.
     ///
     /// Returning a same string's object index If a same string already exists in the heap.
-    pub fn write_string(&mut self, s: &str) -> usize {
+    pub fn write_string(&mut self, s: &str) -> ObjIndex {
         if self.interned_strings.contains_key(s) {
-            return self.interned_strings.get(s).copied().unwrap();
+            return self.interned_strings.get(s).copied().unwrap().into();
         }
         let obj = ObjData::String(ObjString::new(s));
         let idx = self.write(obj);
         self.interned_strings.insert(s.to_string(), idx);
-        idx
+        ObjIndex::new(idx)
     }
 
     /// Write the function object into heap and return the index.
-    pub fn write_func(&mut self, name: &str, arity: usize) -> usize {
-        let name_idx = ObjId::new(self.write_string(name));
-        let func = ObjData::Function(ObjFunction::new(name_idx, arity));
+    pub fn write_func(&mut self, name_id: ObjIndex, arity: usize) -> usize {
+        let func = ObjData::Function(ObjFunction::new(name_id, arity));
         self.write(func)
     }
 }

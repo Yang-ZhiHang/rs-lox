@@ -35,19 +35,6 @@ macro_rules! binary_op {
     }};
 }
 
-// Macro helper to avoid borrow checker.
-macro_rules! current_frame_mut {
-    ($self:ident) => {
-        $self.frames[$self.frame_count - 1].as_mut().unwrap()
-    };
-}
-
-macro_rules! current_frame {
-    ($self:ident) => {
-        $self.frames[$self.frame_count - 1].as_ref().unwrap()
-    };
-}
-
 const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = FRAMES_MAX * u8::MAX as usize;
 
@@ -133,26 +120,18 @@ impl VM {
     /// so that self is free to be mutably borrowed for push/pop inside the loop.
     pub fn run(&mut self) -> InterpretResult {
         loop {
-            let frame = current_frame!(self);
-            let chunk: *const Chunk = unsafe {
-                let obj_func = self.heap.get_func_unchecked(frame.func);
-                &obj_func.chunk
-            };
-            let slot_offset = frame.slot_offset;
-            if frame.pc > unsafe { chunk.as_ref().unwrap() }.code().len() {
+            let frame = self.frames[self.frame_count - 1].as_mut().unwrap();
+            let chunk: &Chunk = &self.heap.get_func(frame.func).chunk;
+            let pc: &mut usize = &mut frame.pc;
+            if *pc > chunk.code().len() {
                 break;
             }
-            let opcode = Self::read_byte(
-                unsafe { chunk.as_ref().unwrap() },
-                &mut current_frame_mut!(self).pc,
-            );
+            let slot_offset = frame.slot_offset;
+            let opcode = Self::read_byte(chunk, pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
                     OpCode::Constant => {
-                        let val = Self::read_constant(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        );
+                        let val = Self::read_constant(chunk, pc);
                         self.push(val);
                     }
                     OpCode::Print => {
@@ -170,10 +149,7 @@ impl VM {
                         self.push(ret);
                     }
                     OpCode::Call => {
-                        let arg_count = Self::read_byte(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        ) as usize;
+                        let arg_count = Self::read_byte(chunk, pc) as usize;
                         if !self.call_value(arg_count) {
                             return InterpretResult::RuntimeError;
                         }
@@ -182,41 +158,26 @@ impl VM {
                         self.pop();
                     }
                     OpCode::Loop => {
-                        let offset = Self::read_short(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        );
-                        current_frame_mut!(self).pc -= offset;
+                        let offset = Self::read_short(chunk, pc);
+                        frame.pc -= offset;
                     }
                     OpCode::JumpIfFalse => {
-                        let offset = Self::read_short(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        );
-                        current_frame_mut!(self).pc +=
-                            if self.peek(0).is_falsey() { offset } else { 0 };
+                        let val = Self::peek(&self.stack, self.stack_top, 0);
+                        let offset = Self::read_short(chunk, pc);
+                        frame.pc += if val.is_falsey() { offset } else { 0 };
                     }
                     OpCode::Jump => {
-                        let offset = Self::read_short(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        );
-                        current_frame_mut!(self).pc += offset;
+                        let offset = Self::read_short(chunk, pc);
+                        frame.pc += offset;
                     }
                     OpCode::DefineGlobal => {
-                        if let Value::Object(obj_idx) = Self::read_constant(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        ) {
+                        if let Value::Object(obj_idx) = Self::read_constant(chunk, pc) {
                             let v = self.pop();
                             self.global_variables.set(obj_idx, v);
                         }
                     }
                     OpCode::GetGlobal => {
-                        if let Value::Object(obj_idx) = Self::read_constant(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        ) {
+                        if let Value::Object(obj_idx) = Self::read_constant(chunk, pc) {
                             match self.global_variables.get(&obj_idx) {
                                 Some(e) => {
                                     let v = e.v;
@@ -230,11 +191,8 @@ impl VM {
                         }
                     }
                     OpCode::SetGlobal => {
-                        if let Value::Object(obj_idx) = Self::read_constant(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        ) {
-                            let v = self.peek(0);
+                        if let Value::Object(obj_idx) = Self::read_constant(chunk, pc) {
+                            let v = Self::peek(&self.stack, self.stack_top, 0);
                             match &mut self.global_variables.get_mut(&obj_idx) {
                                 Some(e) => {
                                     e.v = v;
@@ -247,20 +205,14 @@ impl VM {
                         }
                     }
                     OpCode::GetLocal => {
-                        let slot = Self::read_byte(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        );
-                        let val = current_frame_mut!(self).get(&self.stack, slot as usize);
+                        let slot = Self::read_byte(chunk, pc);
+                        let val = frame.get(&self.stack, slot as usize);
                         self.push(val);
                     }
                     OpCode::SetLocal => {
-                        let slot = Self::read_byte(
-                            unsafe { chunk.as_ref().unwrap() },
-                            &mut current_frame_mut!(self).pc,
-                        );
-                        let val = self.peek(0);
-                        current_frame_mut!(self).set(&mut self.stack, slot as usize, val);
+                        let slot = Self::read_byte(chunk, pc);
+                        let val = Self::peek(&self.stack, self.stack_top, 0);
+                        frame.set(&mut self.stack, slot as usize, val);
                     }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
@@ -363,11 +315,13 @@ impl VM {
     }
 
     /// Return the value away `n` from top element of the stack.
-    pub fn peek(&self, n: usize) -> Value {
-        if n > self.stack_top - 1 {
+    ///
+    /// Here, we only passing-in `stack` instead of `self` to borrow only the member.
+    pub fn peek(stack: &[Value], stack_top: usize, n: usize) -> Value {
+        if n > stack_top - 1 {
             panic!("Cannot peek index under zero.")
         }
-        self.stack[self.stack_top - 1 - n]
+        stack[stack_top - 1 - n]
     }
 
     /// Print runtime error to console output.
@@ -376,9 +330,9 @@ impl VM {
         let mut frame_idx = self.frame_count - 1;
         while frame_idx != 0 {
             let frame = self.frames[frame_idx].as_ref().unwrap();
-            let func = unsafe { &self.heap.get_func_unchecked(frame.func) };
+            let func = &self.heap.get_func(frame.func);
             let line = func.chunk.get_line(frame.pc);
-            let func_name = unsafe { self.heap.get_string_unchecked(func.name) };
+            let func_name = self.heap.get_string(func.name);
             println!("line {} in {}", line, func_name);
             frame_idx -= 1;
         }
@@ -401,7 +355,7 @@ impl VM {
 
     /// Call the `Value` if it's `Value::Object` and the object id refers to `ObjData::Function`.
     pub fn call_value(&mut self, arg_count: usize) -> bool {
-        if let Value::Object(func_obj_idx) = self.peek(arg_count)
+        if let Value::Object(func_obj_idx) = Self::peek(&self.stack, self.stack_top, arg_count)
             && let ObjData::Function(_) = self.heap.get(func_obj_idx)
         {
             self.call(func_obj_idx, arg_count)
@@ -417,7 +371,7 @@ impl VM {
             self.runtime_error("Stack overflow");
             return false;
         }
-        let func = unsafe { self.heap.get_func_unchecked(func_obj_idx) };
+        let func = self.heap.get_func(func_obj_idx);
         if func.arity != arg_count {
             self.runtime_error(&format!(
                 "Expected {} arguments but got {}",

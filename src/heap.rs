@@ -37,44 +37,29 @@ impl Heap {
 
     #[inline(always)]
     /// Return a immutable reference of function object.
-    /// 
-    /// # Safety
-    ///
-    /// Call this function only when passing in a function object index.
-    /// Index will not be larger than length of heap. Boundary check are unecessary.
-    pub unsafe fn get_func_unchecked(&self, idx: ObjIndex) -> &ObjFunction {
-        // Use `unchecked` to avoid boundary check which will return `Option`.
-        match unsafe { self.objs.get_unchecked(idx.val) } {
-            // Match `ObjFunction` from `ObjData`.
-            ObjData::Function(f) => f,
-            _ => unreachable!(),
-        }
-    }
-    
-    #[inline(always)]
-    /// Return a mutable reference of function object.
-    /// 
-    /// # Safety
-    ///
-    /// Call this function only when passing in a function object index.
-    /// Index will not be larger than length of heap. Boundary check are unecessary.
-    pub unsafe fn get_func_unchecked_mut(&mut self, idx: ObjIndex) -> &mut ObjFunction {
-        // Use `unchecked` to avoid boundary check which will return `Option`.
-        match unsafe { self.objs.get_unchecked_mut(idx.val) } {
-            // Match `ObjFunction` from `ObjData`.
-            ObjData::Function(f) => f,
+    /// Ensure the passing-in index is a index of function object.
+    pub fn get_func(&self, idx: ObjIndex) -> &ObjFunction {
+        match self.objs.get(idx.val) {
+            Some(ObjData::Function(f)) => f,
             _ => unreachable!(),
         }
     }
 
     #[inline(always)]
-    /// # Safety
-    ///
-    /// Call this function only when passing in a string object index.
-    /// Index will not be larger than length of heap. Boundary check are unecessary.
-    pub unsafe fn get_string_unchecked(&self, idx: ObjIndex) -> &ObjString {
-        match unsafe { self.objs.get_unchecked(idx.val) } {
-            ObjData::String(s) => s,
+    /// Return a mutable reference of function object.
+    /// Ensure the passing-in index is a index of function object.
+    pub fn get_func_mut(&mut self, idx: ObjIndex) -> &mut ObjFunction {
+        match self.objs.get_mut(idx.val) {
+            Some(ObjData::Function(f)) => f,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    /// Return a immutable reference of string object.
+    pub fn get_string(&self, idx: ObjIndex) -> &ObjString {
+        match self.objs.get(idx.val) {
+            Some(ObjData::String(s)) => s,
             _ => unreachable!(),
         }
     }

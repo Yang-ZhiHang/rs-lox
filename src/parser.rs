@@ -362,10 +362,10 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.consume(TokenType::LeftParen, "Expected '(' after function name.");
         if !self.check(TokenType::RightParen) {
             let func_obj_idx = self.ctx().func;
-            let func: *mut ObjFunction = unsafe { self.heap.get_func_unchecked_mut(func_obj_idx) };
+            let mut arity = 0;
             loop {
-                unsafe { (*func).arity += 1 };
-                if unsafe { (*func).arity } > 255 {
+                arity += 1;
+                if arity > 255 {
                     self.error_at_current("Can't have more than 255 parameters.");
                 }
                 let local = self.parse_variable("Expected variable name.");
@@ -374,6 +374,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
                     break;
                 }
             }
+            let func: &mut ObjFunction = self.heap.get_func_mut(func_obj_idx);
+            func.arity = arity;
         }
         self.consume(TokenType::RightParen, "Expected ')' after parameter list.");
         self.consume(
@@ -384,7 +386,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let func_obj_idx = self.end_compile();
         self.emit_constant(Value::Object(func_obj_idx));
     }
-    
+
     /// Update current context according to the passing-in one.
     pub fn update_ctx(&mut self, mut ctx: Context) {
         // Caller will not be `None` unless meets the last `end_compile`.
@@ -409,6 +411,7 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         let idx = self.ctx().local_count;
         if idx >= MAX_LOCAL_SIZE {
             self.error_at_current("Too many local variables.");
+            return;
         }
         self.ctx_mut().locals[idx] = Some(local);
         self.ctx_mut().local_count += 1;
@@ -722,8 +725,8 @@ impl<'src, 'heap> Parser<'src, 'heap> {
         self.emit_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
-            let func = unsafe { self.heap.get_func_unchecked(self.ctx().func) };
-            let func_name = unsafe { self.heap.get_string_unchecked(func.name) };
+            let func = self.heap.get_func(self.ctx().func);
+            let func_name = self.heap.get_string(func.name);
             disassemble(self.current_chunk(), self.heap, &func_name.value);
         }
         let func_obj_idx = self.ctx().func;

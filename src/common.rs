@@ -22,9 +22,7 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
                 println!("{}\t\"{}\"", opcode, obj_string);
             }
             ObjData::Function(obj_func) => {
-                println!("{}\t<fn {}>", opcode, unsafe {
-                    heap.get_string_unchecked(obj_func.name)
-                });
+                println!("{}\t<fn {}>", opcode, heap.get_string(obj_func.name));
             }
         },
         _ => {

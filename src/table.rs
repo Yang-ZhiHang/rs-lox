@@ -63,7 +63,6 @@ impl HashTable {
         let mut idx = (k.hash % capacity as u64) as usize;
         loop {
             match &table[idx] {
-                // TODO: `e.k == *k` time complexity O(n), use string interning to make it O(1).
                 EntryState::Occupied(e) if e.k == *k => return Ok(idx),
                 EntryState::Occupied(_) | EntryState::Deleted => idx = (idx + 1) % capacity,
                 EntryState::Empty => return Err(idx),

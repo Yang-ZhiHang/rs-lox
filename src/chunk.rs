@@ -22,7 +22,7 @@ pub enum OpCode {
     /// Unary
     Negate, Not,
     /// Binary
-    Add, Subtract, Multiply, Divide, Less, Greater, Equal,
+    Add, Sub, Mul, Div, Less, Greater, Equal,
 }
 
 /// A trait for types that can be written into the chunk as a single byte.

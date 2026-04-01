@@ -236,9 +236,9 @@ impl VM {
                             return InterpretResult::RuntimeError;
                         }
                     }
-                    OpCode::Subtract => binary_op!(self, number, -),
-                    OpCode::Multiply => binary_op!(self, number, *),
-                    OpCode::Divide => binary_op!(self, number, /),
+                    OpCode::Sub => binary_op!(self, number, -),
+                    OpCode::Mul => binary_op!(self, number, *),
+                    OpCode::Div => binary_op!(self, number, /),
                     OpCode::Less => binary_op!(self, bool, <),
                     OpCode::Greater => binary_op!(self, bool, >),
                     OpCode::Not => {

@@ -9,8 +9,9 @@ Different from Tree-Walking interpreter, lox interpreter is a Single-pass interp
 For this interpreter learning project, we don't strictly obey the official grammar standard. I made some different design choices or some additional features from the original one in `Crafting Interpreters` book. As the following:
 
 1. Change `var` to `let` for variable declaration.
-2. Add `&&` and `||` logical operation which as same as `and` and `or`.
+2. Add `&&` and `||` logical operators.
 3. Add `switch` statement.
+4. Add `+=`、`-=`、`*=`、`/=` assignment operators.
 
 ## Features
 
@@ -20,7 +21,7 @@ For this interpreter learning project, we don't strictly obey the official gramm
 
 ## Grammar
 
-Here, we support: 
+Here, we support:
 
 - variable declaration & assignment
 - logical operators
@@ -95,11 +96,11 @@ switch a {
 ### Function statement
 
 ```
-fun sum(a, b, c) {
-  return a + b + c;
+fun fibonacci(n) {
+  if (n <= 1) return n;
+  return fibonacci(n - 1) + fibonacci(n - 2);
 }
-
-print 1 + 2 + sum(5, 10, 15);
+print fibonacci(10); // 55
 ```
 
 ## References

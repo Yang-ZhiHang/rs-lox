@@ -141,15 +141,22 @@ pub fn get_rule<'heap>(tt: TokenType) -> ParseRule<'heap> {
         TokenType::RightParen   => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::LeftBrace    => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::RightBrace   => ParseRule::new(None,                   None,                 Precedence::None),
+
         TokenType::Comma        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Dot          => ParseRule::new(None,                   None,                 Precedence::None),
+
         TokenType::Minus        => ParseRule::new(Some(Parser::unary),    Some(Parser::binary), Precedence::Term),
         TokenType::Plus         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Term),
+        TokenType::Star         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
+        TokenType::Slash        => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
+        TokenType::MinusEqual   => ParseRule::new(None,                   None,                 Precedence::Term),
+        TokenType::PlusEqual    => ParseRule::new(None,                   None,                 Precedence::Term),
+        TokenType::MulEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
+        TokenType::DivEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
+        
         TokenType::Colon        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Semicolon    => ParseRule::new(None,                   None,                 Precedence::None),
-        TokenType::Star         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::Bang         => ParseRule::new(Some(Parser::unary),    None,                 Precedence::None),
-        TokenType::Slash        => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::BangEqual    => ParseRule::new(None,                   Some(Parser::binary), Precedence::Equality),
         TokenType::LessEqual    => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
         TokenType::GreaterEqual => ParseRule::new(None,                   Some(Parser::binary), Precedence::Comparison),
@@ -574,7 +581,7 @@ impl<'heap> Parser<'heap> {
     /// Parse a return statement.
     pub fn return_statement(&mut self) {
         if self.ctx().func_type == FunctionType::Global {
-            self.error_at_current("Can't return from top-level code.");
+            self.error_at(self.prev, "Can't return from top-level scope.");
             return;
         }
         if self.next(TokenType::Semicolon) {
@@ -829,14 +836,14 @@ impl<'heap> Parser<'heap> {
         #[rustfmt::skip]
         match tt {
             TokenType::Plus         => self.emit_byte(OpCode::Add),
-            TokenType::Minus        => self.emit_byte(OpCode::Subtract),
-            TokenType::Star         => self.emit_byte(OpCode::Multiply),
-            TokenType::Slash        => self.emit_byte(OpCode::Divide),
+            TokenType::Minus        => self.emit_byte(OpCode::Sub),
+            TokenType::Star         => self.emit_byte(OpCode::Mul),
+            TokenType::Slash        => self.emit_byte(OpCode::Div),
             TokenType::BangEqual    => self.emit_bytes(OpCode::Equal, OpCode::Not),
             TokenType::Less         => self.emit_byte(OpCode::Less),
             TokenType::Greater      => self.emit_byte(OpCode::Greater),
-            TokenType::LessEqual    => self.emit_bytes(OpCode::Less, OpCode::Not),
-            TokenType::GreaterEqual => self.emit_bytes(OpCode::Greater, OpCode::Not),
+            TokenType::LessEqual    => self.emit_bytes(OpCode::Greater, OpCode::Not),
+            TokenType::GreaterEqual => self.emit_bytes(OpCode::Less, OpCode::Not),
             TokenType::EqualEqual   => self.emit_byte(OpCode::Equal),
             _ => {},
         };
@@ -902,6 +909,26 @@ impl<'heap> Parser<'heap> {
         };
         if assignable && self.next(TokenType::Equal) {
             self.expression();
+            self.emit_bytes(op_set, idx);
+        } else if assignable && self.next(TokenType::PlusEqual) {
+            self.emit_bytes(op_get, idx);
+            self.expression();
+            self.emit_byte(OpCode::Add);
+            self.emit_bytes(op_set, idx);
+        } else if assignable && self.next(TokenType::MinusEqual) {
+            self.emit_bytes(op_get, idx);
+            self.expression();
+            self.emit_byte(OpCode::Sub);
+            self.emit_bytes(op_set, idx);
+        } else if assignable && self.next(TokenType::MulEqual) {
+            self.emit_bytes(op_get, idx);
+            self.expression();
+            self.emit_byte(OpCode::Mul);
+            self.emit_bytes(op_set, idx);
+        } else if assignable && self.next(TokenType::DivEqual) {
+            self.emit_bytes(op_get, idx);
+            self.expression();
+            self.emit_byte(OpCode::Div);
             self.emit_bytes(op_set, idx);
         } else {
             self.emit_bytes(op_get, idx);
@@ -1002,7 +1029,7 @@ impl<'heap> Parser<'heap> {
                 self.error_at_current("Invalid assignment target.");
             }
         } else {
-            self.error_at_current("Expected expression.");
+            self.error_at(self.prev, "Invalid expression.");
         }
     }
 

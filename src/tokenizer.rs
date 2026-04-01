@@ -48,7 +48,7 @@ pub enum TokenType {
     // Single character
     Comma, Dot, Minus, Plus, Colon, Semicolon, Star, Bang, Equal, Less, Greater, Slash,
     // Two character
-    BangEqual, LessEqual, GreaterEqual, EqualEqual,
+    BangEqual, LessEqual, GreaterEqual, EqualEqual, PlusEqual, MinusEqual, MulEqual, DivEqual,
     // Literal
     String, Identifier, Number,
     // Keywords
@@ -117,11 +117,32 @@ impl Tokenizer {
             '}' => self.make_token(TokenType::RightBrace),
             ',' => self.make_token(TokenType::Comma),
             '.' => self.make_token(TokenType::Dot),
-            '-' => self.make_token(TokenType::Minus),
-            '+' => self.make_token(TokenType::Plus),
+            '-' => {
+                let t = if self.next('=') {
+                    TokenType::MinusEqual
+                } else {
+                    TokenType::Minus
+                };
+                self.make_token(t)
+            }
+            '+' => {
+                let t = if self.next('=') {
+                    TokenType::PlusEqual
+                } else {
+                    TokenType::Plus
+                };
+                self.make_token(t)
+            }
             ':' => self.make_token(TokenType::Colon),
             ';' => self.make_token(TokenType::Semicolon),
-            '*' => self.make_token(TokenType::Star),
+            '*' => {
+                let t = if self.next('=') {
+                    TokenType::MulEqual
+                } else {
+                    TokenType::Star
+                };
+                self.make_token(t)
+            }
             '!' => {
                 let t = if self.next('=') {
                     TokenType::BangEqual
@@ -154,7 +175,14 @@ impl Tokenizer {
                 };
                 self.make_token(t)
             }
-            '/' => self.make_token(TokenType::Slash),
+            '/' => {
+                let t = if self.next('=') {
+                    TokenType::DivEqual
+                } else {
+                    TokenType::Slash
+                };
+                self.make_token(t)
+            }
             '"' => self.string(),
             '&' if self.next('&') => self.make_token(TokenType::And),
             '|' if self.next('|') => self.make_token(TokenType::Or),
@@ -178,6 +206,8 @@ impl Tokenizer {
                 '/' => {
                     if self.peek(1) == '/' {
                         self.line_comment();
+                    } else {
+                        return;
                     }
                 }
                 _ => return,
@@ -419,7 +449,7 @@ mod tests {
             ),
             // Single character tokens.
             (
-                "(){},.-+;*=<>!",
+                "( ) { } , . - + ; * = < > !",
                 vec![
                     TokenType::LeftParen,
                     TokenType::RightParen,
@@ -445,6 +475,17 @@ mod tests {
                     TokenType::BangEqual,
                     TokenType::LessEqual,
                     TokenType::GreaterEqual,
+                    TokenType::EOF
+                ]
+            ),
+            // Compound assignment operator
+            (
+                "+= -= *= /=",
+                vec![
+                    TokenType::PlusEqual,
+                    TokenType::MinusEqual,
+                    TokenType::MulEqual,
+                    TokenType::DivEqual,
                     TokenType::EOF
                 ]
             ),

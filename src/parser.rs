@@ -38,7 +38,7 @@ pub struct Context {
     /// The context of caller function (current one is callee).
     caller: Option<Box<Context>>,
     /// Use ObjId instead of reference to make the `func` a unsafe reference.
-    func: ObjIndex,
+    func_obj_idx: ObjIndex,
     /// The current function type.
     func_type: FunctionType,
     /// Stack array stores local variables.
@@ -57,7 +57,7 @@ impl Context {
         let global_func = heap.write_func(name_idx, 0);
         let mut ctx = Self {
             caller: None,
-            func: ObjIndex::new(global_func),
+            func_obj_idx: global_func,
             func_type,
             locals: [const { None }; MAX_LOCAL_SIZE],
             local_count: 0,
@@ -153,7 +153,7 @@ pub fn get_rule<'heap>(tt: TokenType) -> ParseRule<'heap> {
         TokenType::PlusEqual    => ParseRule::new(None,                   None,                 Precedence::Term),
         TokenType::MulEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
         TokenType::DivEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
-        
+
         TokenType::Colon        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Semicolon    => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Bang         => ParseRule::new(Some(Parser::unary),    None,                 Precedence::None),
@@ -198,8 +198,6 @@ pub enum CompileError {
 pub struct Parser<'heap> {
     tokenizer: Tokenizer,
     heap: &'heap mut Heap,
-    /// The container to store byte code when compiling.
-    pub chunk: Chunk,
     /// Why we need a prev and cur token? Why only two tokens?
     prev: Token,
     cur: Token,
@@ -219,7 +217,6 @@ impl<'heap> Parser<'heap> {
         Self {
             tokenizer,
             heap,
-            chunk: Chunk::new(),
             prev: Token::default(),
             cur: Token::default(),
             had_error: false,
@@ -270,11 +267,11 @@ impl<'heap> Parser<'heap> {
         while !self.next(TokenType::EOF) {
             self.declaration();
         }
-        let func_obj_id = self.end_compile();
+        let func_obj_idx = self.end_compile();
         if self.had_error {
             None
         } else {
-            Some(func_obj_id)
+            Some(func_obj_idx)
         }
     }
 
@@ -368,7 +365,7 @@ impl<'heap> Parser<'heap> {
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expected '(' after function name.");
         if !self.check(TokenType::RightParen) {
-            let func_obj_idx = self.ctx().func;
+            let func_obj_idx = self.ctx().func_obj_idx;
             let mut arity = 0;
             loop {
                 arity += 1;
@@ -391,7 +388,10 @@ impl<'heap> Parser<'heap> {
         );
         self.block();
         let func_obj_idx = self.end_compile();
-        self.emit_constant(Value::Object(func_obj_idx));
+        let idx = self
+            .current_chunk_mut()
+            .write_constant(Value::Object(func_obj_idx));
+        self.emit_bytes(OpCode::Closure, idx);
     }
 
     /// Update current context according to the passing-in one.
@@ -732,11 +732,11 @@ impl<'heap> Parser<'heap> {
         self.emit_return();
         #[cfg(debug_assertions)]
         if !self.had_error {
-            let func = self.heap.get_func(self.ctx().func);
+            let func = self.heap.get_func(self.ctx().func_obj_idx);
             let func_name = self.heap.get_string(func.name);
             disassemble(self.current_chunk(), self.heap, &func_name.value);
         }
-        let func_obj_idx = self.ctx().func;
+        let func_obj_idx = self.ctx().func_obj_idx;
         let current_ctx = self.ctx.take().unwrap();
         match current_ctx.caller {
             Some(caller_ctx) => self.ctx = Some(*caller_ctx),
@@ -749,7 +749,7 @@ impl<'heap> Parser<'heap> {
     ///
     /// If the current context is function, it will return the byte chunk of function else global one.
     pub fn current_chunk(&self) -> &Chunk {
-        if let ObjData::Function(obj_func) = self.heap.get(self.ctx().func) {
+        if let ObjData::Function(obj_func) = self.heap.get(self.ctx().func_obj_idx) {
             &obj_func.chunk
         } else {
             unimplemented!()
@@ -760,7 +760,8 @@ impl<'heap> Parser<'heap> {
     ///
     /// If the current context is function, it will return the byte chunk of function else global one.
     pub fn current_chunk_mut(&mut self) -> &mut Chunk {
-        if let ObjData::Function(obj_func) = self.heap.get_mut(self.ctx().func) {
+        let func_obj_idx = self.ctx().func_obj_idx;
+        if let ObjData::Function(obj_func) = self.heap.get_mut(func_obj_idx) {
             &mut obj_func.chunk
         } else {
             unimplemented!()

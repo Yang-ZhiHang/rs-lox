@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::object::{ObjData, ObjFunction, ObjIndex, ObjString};
+use crate::object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjString};
 
 pub struct Heap {
     /// The list of object.
@@ -36,6 +36,15 @@ impl Heap {
     }
 
     #[inline(always)]
+    /// Return a immutable reference of string object.
+    pub fn get_string(&self, idx: ObjIndex) -> &ObjString {
+        match self.objs.get(idx.val) {
+            Some(ObjData::String(s)) => s,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
     /// Return a immutable reference of function object.
     /// Ensure the passing-in index is a index of function object.
     pub fn get_func(&self, idx: ObjIndex) -> &ObjFunction {
@@ -56,10 +65,11 @@ impl Heap {
     }
 
     #[inline(always)]
-    /// Return a immutable reference of string object.
-    pub fn get_string(&self, idx: ObjIndex) -> &ObjString {
+    /// Return a immutable reference of function object.
+    /// Ensure the passing-in index is a index of function object.
+    pub fn get_closure(&self, idx: ObjIndex) -> &ObjClosure {
         match self.objs.get(idx.val) {
-            Some(ObjData::String(s)) => s,
+            Some(ObjData::Closure(c)) => c,
             _ => unreachable!(),
         }
     }
@@ -84,9 +94,16 @@ impl Heap {
     }
 
     /// Write the function object into heap and return the index.
-    pub fn write_func(&mut self, name_id: ObjIndex, arity: usize) -> usize {
+    pub fn write_func(&mut self, name_id: ObjIndex, arity: usize) -> ObjIndex {
         let func = ObjData::Function(ObjFunction::new(name_id, arity));
-        self.write(func)
+        let idx = self.write(func);
+        ObjIndex::new(idx)
+    }
+
+    /// Write the closure object into heap and return the index.
+    pub fn write_closure(&mut self, closure: ObjClosure) -> ObjIndex {
+        let idx = self.write(ObjData::Closure(closure));
+        ObjIndex::new(idx)
     }
 }
 

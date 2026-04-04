@@ -1,5 +1,6 @@
 /target
 /chart
+/log
 log.md
 todo.md
 examples/test.lox

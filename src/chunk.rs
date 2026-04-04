@@ -11,7 +11,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, strum::Display, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
-    Return, Print, Pop, Call,
+    Return, Print, Pop, Call, Closure,
     /// Condition
     JumpIfFalse, Jump, Loop,
     /// Variable

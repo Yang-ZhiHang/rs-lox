@@ -19,10 +19,13 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
     match val {
         Value::Object(obj_idx) => match heap.get(obj_idx) {
             ObjData::String(obj_string) => {
-                println!("{}\t\"{}\"", opcode, obj_string);
+                println!("{:<8}\t\"{}\"", opcode, obj_string);
             }
             ObjData::Function(obj_func) => {
-                println!("{}\t<fn {}>", opcode, heap.get_string(obj_func.name));
+                println!("{:<8}\t<fn {}>", opcode, heap.get_string(obj_func.name));
+            }
+            ObjData::Closure(_) => {
+                unreachable!()
             }
         },
         _ => {
@@ -37,7 +40,7 @@ pub fn index_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize 
     let idx = chunk.code()[offset + 1];
     match opcode {
         OpCode::Call => {
-            println!("{:<8}\targ*{}", opcode, idx);
+            println!("{:<8}\targc({})", opcode, idx);
         }
         _ => {
             println!("{:<8}\t<index {}>", opcode, idx);
@@ -82,9 +85,11 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
     let byte = chunk.code()[offset];
     match OpCode::from_repr(byte) {
         Some(opcode) => match opcode {
-            OpCode::Constant | OpCode::DefineGlobal | OpCode::GetGlobal | OpCode::SetGlobal => {
-                constant_instruction(chunk, heap, offset, opcode)
-            }
+            OpCode::Constant
+            | OpCode::DefineGlobal
+            | OpCode::GetGlobal
+            | OpCode::SetGlobal
+            | OpCode::Closure => constant_instruction(chunk, heap, offset, opcode),
             OpCode::JumpIfFalse | OpCode::Jump | OpCode::Loop => {
                 jump_instruction(chunk, offset, opcode)
             }

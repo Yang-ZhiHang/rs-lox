@@ -1,7 +1,7 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
     heap::Heap,
-    object::{ObjData, ObjIndex},
+    object::{ObjClosure, ObjData, ObjIndex},
     table::HashTable,
 };
 
@@ -46,16 +46,17 @@ pub enum InterpretResult {
 
 pub struct CallFrame {
     pc: usize,
-    func: ObjIndex,
+    /// Object index of closure.
+    closure_obj_idx: ObjIndex,
     /// The start index of call frame.
     slot_offset: usize,
 }
 
 impl CallFrame {
-    pub fn new(func: ObjIndex, slot_offset: usize) -> Self {
+    pub fn new(closure: ObjIndex, slot_offset: usize) -> Self {
         Self {
             pc: 0,
-            func,
+            closure_obj_idx: closure,
             slot_offset,
         }
     }
@@ -109,9 +110,10 @@ impl VM {
 
     /// Interpret the given byte chunk.
     pub fn interpret(&mut self, func_obj_idx: ObjIndex) -> InterpretResult {
-        // TODO: complete comment
-        self.push(Value::Object(func_obj_idx));
-        self.call(func_obj_idx, 0);
+        let closure = ObjClosure::new(func_obj_idx);
+        let closure_obj_idx = self.heap.write_closure(closure);
+        self.push(Value::Object(closure_obj_idx));
+        self.call(closure_obj_idx, 0);
         self.run()
     }
 
@@ -121,7 +123,9 @@ impl VM {
     pub fn run(&mut self) -> InterpretResult {
         loop {
             let frame = self.frames[self.frame_count - 1].as_mut().unwrap();
-            let chunk: &Chunk = &self.heap.get_func(frame.func).chunk;
+            let closure = self.heap.get_closure(frame.closure_obj_idx);
+            let func = self.heap.get_func(closure.func);
+            let chunk: &Chunk = &func.chunk;
             let pc: &mut usize = &mut frame.pc;
             if *pc > chunk.code().len() {
                 break;
@@ -130,6 +134,15 @@ impl VM {
             let opcode = Self::read_byte(chunk, pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
+                    OpCode::Closure => {
+                        if let Value::Object(func_obj_idx) = Self::read_constant(chunk, pc) {
+                            let closure = ObjClosure::new(func_obj_idx);
+                            let closure_idx = self.heap.write_closure(closure);
+                            self.push(Value::Object(closure_idx));
+                        } else {
+                            self.runtime_error("Invalid use of `Closure` operation code.");
+                        }
+                    }
                     OpCode::Constant => {
                         let val = Self::read_constant(chunk, pc);
                         self.push(val);
@@ -330,7 +343,8 @@ impl VM {
         let mut frame_idx = self.frame_count - 1;
         while frame_idx != 0 {
             let frame = self.frames[frame_idx].as_ref().unwrap();
-            let func = &self.heap.get_func(frame.func);
+            let closure = &self.heap.get_closure(frame.closure_obj_idx);
+            let func = &self.heap.get_func(closure.func);
             let line = func.chunk.get_line(frame.pc);
             let func_name = self.heap.get_string(func.name);
             println!("line {} in {}", line, func_name);
@@ -355,10 +369,10 @@ impl VM {
 
     /// Call the `Value` if it's `Value::Object` and the object id refers to `ObjData::Function`.
     pub fn call_value(&mut self, arg_count: usize) -> bool {
-        if let Value::Object(func_obj_idx) = Self::peek(&self.stack, self.stack_top, arg_count)
-            && let ObjData::Function(_) = self.heap.get(func_obj_idx)
+        if let Value::Object(closure_obj_idx) = Self::peek(&self.stack, self.stack_top, arg_count)
+            && let ObjData::Closure(_) = self.heap.get(closure_obj_idx)
         {
-            self.call(func_obj_idx, arg_count)
+            self.call(closure_obj_idx, arg_count)
         } else {
             self.runtime_error("Can only call function or class.");
             false
@@ -366,12 +380,13 @@ impl VM {
     }
 
     /// Call the function object with arguments.
-    pub fn call(&mut self, func_obj_idx: ObjIndex, arg_count: usize) -> bool {
+    pub fn call(&mut self, closure_obj_idx: ObjIndex, arg_count: usize) -> bool {
         if self.frame_count == FRAMES_MAX {
             self.runtime_error("Stack overflow");
             return false;
         }
-        let func = self.heap.get_func(func_obj_idx);
+        let closure = self.heap.get_closure(closure_obj_idx);
+        let func = self.heap.get_func(closure.func);
         if func.arity != arg_count {
             self.runtime_error(&format!(
                 "Expected {} arguments but got {}",
@@ -380,7 +395,7 @@ impl VM {
             return false;
         }
         // `self.stack[slot_offset]` must be a object index of function.
-        let frame = CallFrame::new(func_obj_idx, self.stack_top - arg_count - 1);
+        let frame = CallFrame::new(closure_obj_idx, self.stack_top - arg_count - 1);
         self.frames[self.frame_count] = Some(frame);
         self.frame_count += 1;
         true

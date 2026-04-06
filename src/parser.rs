@@ -4,8 +4,12 @@ use crate::{
     chunk::{Chunk, IntoU8, OpCode, Value},
     heap::Heap,
     object::{FunctionType, ObjData, ObjFunction, ObjIndex},
-    tokenizer::{Token, TokenType, Tokenizer},
+    tokenizer::{Token, TokenType, Tokenizer, token_cmp},
 };
+
+pub const U8_MAX: usize = u8::MAX as usize;
+pub const MAX_LOCAL_SIZE: usize = U8_MAX;
+pub const MAX_UPVALUE_SIZE: usize = U8_MAX;
 
 /// Local variable.
 #[allow(unused)]
@@ -29,7 +33,17 @@ impl Local {
     }
 }
 
-pub const MAX_LOCAL_SIZE: usize = 256;
+#[derive(Clone, Copy)]
+pub struct Upvalue {
+    idx: usize,
+    is_local: bool,
+}
+
+impl Upvalue {
+    pub fn new(idx: usize, is_local: bool) -> Self {
+        Self { idx, is_local }
+    }
+}
 
 /// The context for storing local variable, function, closure.
 #[derive(Clone)]
@@ -45,6 +59,10 @@ pub struct Context {
     locals: [Option<Local>; MAX_LOCAL_SIZE],
     /// Amount of local variables.
     local_count: usize,
+    /// Stack array stores upvalues.
+    upvalues: [Option<Upvalue>; MAX_LOCAL_SIZE],
+    /// Amount of upvalues.
+    upvalue_count: usize,
     /// The depth of current code block.
     scope_depth: usize,
 }
@@ -54,16 +72,19 @@ impl Context {
     ///
     /// `scope_depth` defaults to 0.
     pub fn new(heap: &mut Heap, name_idx: ObjIndex, func_type: FunctionType) -> Self {
-        let global_func = heap.write_func(name_idx, 0);
+        // Temporarily set arity to zero. We will update it in `function()` after parsing parameter list.
+        let func_obj_idx = heap.write_func(name_idx, 0);
         let mut ctx = Self {
             caller: None,
-            func_obj_idx: global_func,
+            func_obj_idx,
             func_type,
             locals: [const { None }; MAX_LOCAL_SIZE],
             local_count: 0,
+            upvalues: [const { None }; MAX_UPVALUE_SIZE],
+            upvalue_count: 0,
             scope_depth: 0,
         };
-        // The slot 0 is used for storing function return address.
+        // The slot 0 is used for storing function calling object.
         ctx.locals[0] = Some(Local::new(Token::default(), Some(0), false));
         ctx.local_count += 1;
         ctx
@@ -356,9 +377,17 @@ impl<'heap> Parser<'heap> {
 
     /// Parse a function body.
     pub fn function(&mut self, global: usize) {
-        let name_obj_idx = match self.current_chunk().constants()[global] {
-            Value::Object(idx) => idx,
-            other => panic!("Expected Object, got {:?}", other),
+        let name_obj_idx = if self.ctx().scope_depth == 0 {
+            match self.current_chunk().constants()[global] {
+                Value::Object(idx) => idx,
+                other => panic!("Expected Object, got {:?}", other),
+            }
+        } else {
+            // Perf: Maybe we can set `name_obj_idx` to `Option` and not to write string to heap to 
+            // reduce the usage of memory?
+            self.heap.write_string(unsafe {
+                std::str::from_utf8_unchecked(self.prev.name(self.tokenizer.source()))
+            })
         };
         let ctx = Context::new(self.heap, name_obj_idx, FunctionType::Function);
         self.update_ctx(ctx);
@@ -388,10 +417,20 @@ impl<'heap> Parser<'heap> {
         );
         self.block();
         let func_obj_idx = self.end_compile();
-        let idx = self
-            .current_chunk_mut()
-            .write_constant(Value::Object(func_obj_idx));
-        self.emit_bytes(OpCode::Closure, idx);
+        self.emit_with_constant_idx(OpCode::Closure, Value::Object(func_obj_idx));
+        // Perf: Maybe we can make it reference traverse?
+        let upvalues: Vec<_> = self
+            .ctx
+            .as_ref()
+            .unwrap()
+            .upvalues
+            .iter()
+            .flatten()
+            .copied()
+            .collect();
+        for v in upvalues {
+            self.emit_bytes(v.is_local, v.idx);
+        }
     }
 
     /// Update current context according to the passing-in one.
@@ -411,10 +450,10 @@ impl<'heap> Parser<'heap> {
         self.add_local(self.prev);
     }
 
-    /// Add a local variable to the local variable list.
-    pub fn add_local(&mut self, token: Token) {
+    /// Add a local variable to the local variable stack.
+    pub fn add_local(&mut self, t: Token) {
         // Temporarily set `is_captured` to false.
-        let local = Local::new(token, None, false);
+        let local = Local::new(t, None, false);
         let idx = self.ctx().local_count;
         if idx >= MAX_LOCAL_SIZE {
             self.error_at_current("Too many local variables.");
@@ -422,6 +461,23 @@ impl<'heap> Parser<'heap> {
         }
         self.ctx_mut().locals[idx] = Some(local);
         self.ctx_mut().local_count += 1;
+    }
+
+    /// Add a upvalue to the upvalue stack.
+    pub fn add_upvalue(&mut self, idx: usize, is_local: bool) -> usize {
+        let upvalue = Upvalue::new(idx, is_local);
+        // TODO: Max exceed Error handling?
+        // Search existing upvalues first.
+        let upvalues = &self.ctx().upvalues;
+        for (i, v) in upvalues.iter().flatten().enumerate() {
+            if v.idx == idx && v.is_local == is_local {
+                return i;
+            }
+        }
+        let upvalue_count = self.ctx().upvalue_count;
+        self.ctx_mut().upvalues[upvalue_count] = Some(upvalue);
+        self.ctx_mut().upvalue_count += 1;
+        self.ctx().upvalue_count - 1
     }
 
     pub fn statement(&mut self) {
@@ -700,10 +756,10 @@ impl<'heap> Parser<'heap> {
         self.emit_byte(OpCode::Return);
     }
 
-    /// Write operation code and constant value index (which from constant area) to the chunk.
-    pub fn emit_constant(&mut self, constant: Value) {
+    /// Write operation code and constant value index (which from constant area) to the current chunk.
+    pub fn emit_with_constant_idx(&mut self, op: OpCode, constant: Value) {
         let idx = self.current_chunk_mut().write_constant(constant);
-        self.emit_bytes(OpCode::Constant, idx);
+        self.emit_bytes(op, idx);
     }
 
     /// Write jump operation code.
@@ -727,7 +783,9 @@ impl<'heap> Parser<'heap> {
         self.emit_byte(offset);
     }
 
-    /// Write return operation code to chunk.
+    /// Write `Opcode::Return` to chunk and back to caller context.
+    ///
+    /// Returning the function object index of callee.
     pub fn end_compile(&mut self) -> ObjIndex {
         self.emit_return();
         #[cfg(debug_assertions)]
@@ -858,7 +916,7 @@ impl<'heap> Parser<'heap> {
             .expect("Number token should be valid UTF-8.")
             .parse()
             .expect("Number token should be a valid float.");
-        self.emit_constant(Value::Number(val));
+        self.emit_with_constant_idx(OpCode::Constant, Value::Number(val));
     }
 
     /// The parenthesis handling unit of Pratt parser.
@@ -885,7 +943,7 @@ impl<'heap> Parser<'heap> {
         let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
         let obj_idx = self.heap.write_string(s);
-        self.emit_constant(Value::Object(obj_idx));
+        self.emit_with_constant_idx(OpCode::Constant, Value::Object(obj_idx));
     }
 
     /// The variable handling unit of Pratt parser.
@@ -903,10 +961,16 @@ impl<'heap> Parser<'heap> {
                 idx = local_idx;
                 (OpCode::GetLocal, OpCode::SetLocal)
             }
-            None => {
-                idx = self.identifier_constant(*t);
-                (OpCode::GetGlobal, OpCode::SetGlobal)
-            }
+            None => match self.get_upvalue_idx(t) {
+                Some(upvalue_idx) => {
+                    idx = upvalue_idx;
+                    (OpCode::GetUpvalue, OpCode::SetUpvalue)
+                }
+                None => {
+                    idx = self.identifier_constant(*t);
+                    (OpCode::GetGlobal, OpCode::SetGlobal)
+                }
+            },
         };
         if assignable && self.next(TokenType::Equal) {
             self.expression();
@@ -938,17 +1002,15 @@ impl<'heap> Parser<'heap> {
 
     /// Get the local variable index according to token name.
     ///
-    /// Returning the local idx in `Option` if exists else `None`.
-    pub fn get_local_idx(&mut self, token: &Token) -> Option<usize> {
+    /// Returning the local index in `Option` if exists else `None`.
+    pub fn get_local_idx(&mut self, t: &Token) -> Option<usize> {
         if self.ctx().scope_depth == 0 {
             return None;
         }
-        for (i, v) in self.ctx().locals.iter().enumerate() {
-            if let Some(e) = v
-                && self.token_cmp(&e.token, token)
-            {
+        for (i, v) in self.ctx().locals.iter().flatten().enumerate() {
+            if token_cmp(&v.token, t, self.tokenizer.source()) {
                 // The variale ought to be initialized. (`depth` is not `None`)
-                if let Some(depth) = e.depth
+                if let Some(depth) = v.depth
                     // Only higher level scope are available.
                     && depth <= self.ctx().scope_depth
                 {
@@ -960,11 +1022,27 @@ impl<'heap> Parser<'heap> {
         None
     }
 
-    /// Compare if the name of two tokens are same.
+    /// Get the upvalue index according to token name and current context.
     ///
-    /// This comparison method is a byte by byte comparison which will sacrifice some performance.
-    pub fn token_cmp(&self, t1: &Token, t2: &Token) -> bool {
-        t1.name(self.tokenizer.source()) == t2.name(self.tokenizer.source())
+    /// Returning the upvalue index in `Option` if exists else `None`.
+    pub fn get_upvalue_idx(&mut self, t: &Token) -> Option<usize> {
+        let mut ctx = self.ctx.as_mut().unwrap();
+        let depth = ctx.scope_depth;
+        loop {
+            // Return `None` if we recursively reach the global scope.
+            ctx.caller.as_ref()?;
+            let caller = ctx.caller.as_mut().unwrap();
+            let locals = &caller.locals;
+            for (i, v) in locals.iter().flatten().enumerate() {
+                if token_cmp(&v.token, t, self.tokenizer.source()) && v.depth.is_some() {
+                    // Judge if the upvalue is from the direct caller.
+                    let is_local = caller.scope_depth == depth - 1;
+                    let upvalue_idx = self.add_upvalue(i, is_local);
+                    return Some(upvalue_idx);
+                }
+            }
+            ctx = caller.as_mut();
+        }
     }
 
     /// The call handling unit of Pratt parser.

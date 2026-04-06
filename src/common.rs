@@ -55,7 +55,7 @@ pub fn jump_instruction(chunk: &Chunk, offset: usize, opcode: OpCode) -> usize {
     let l = chunk.code()[offset + 2] as usize;
     let jump_offset = h << 8 | l;
     // {:<8} to avoid the alignment problem of output information caused by overly short opcode characters like `Jump`.
-    println!("{:<8}\t<offset {}>", opcode, jump_offset);
+    println!("{:<8}\toffset({})", opcode, jump_offset);
     offset + 3
 }
 

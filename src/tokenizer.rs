@@ -37,6 +37,13 @@ impl Token {
     }
 }
 
+/// Compare if the name of two tokens are same.
+///
+/// This comparison method is a byte by byte comparison which will sacrifice some performance.
+pub fn token_cmp(t1: &Token, t2: &Token, src: &[u8]) -> bool {
+    t1.name(src) == t2.name(src)
+}
+
 #[rustfmt::skip]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {

@@ -227,6 +227,9 @@ impl VM {
                         let val = Self::peek(&self.stack, self.stack_top, 0);
                         frame.set(&mut self.stack, slot as usize, val);
                     }
+                    OpCode::GetUpvalue | OpCode::SetUpvalue => {
+                        unimplemented!()
+                    }
                     OpCode::Negate => {
                         let val = &mut self.stack[self.stack_top - 1];
                         match val {

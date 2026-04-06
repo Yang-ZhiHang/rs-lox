@@ -17,6 +17,7 @@ pub enum OpCode {
     /// Variable
     DefineGlobal, GetGlobal, SetGlobal,
     GetLocal, SetLocal,
+    GetUpvalue, SetUpvalue,
     /// Literal
     Constant, Nil, True, False,
     /// Unary
@@ -39,6 +40,12 @@ impl IntoU8 for OpCode {
 }
 
 impl IntoU8 for usize {
+    fn into_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+impl IntoU8 for bool {
     fn into_u8(self) -> u8 {
         self as u8
     }

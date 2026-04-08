@@ -8,7 +8,7 @@ use crate::{
 // Use strum to automatically distribute number for enum member. It's useful when we
 // read bytes data and detect it is opcode or index.
 #[rustfmt::skip]
-#[derive(Clone, Copy, Debug, strum::Display, strum::FromRepr)]
+#[derive(Clone, Copy, Debug, PartialEq, strum::Display, strum::FromRepr)]
 #[repr(u8)]
 pub enum OpCode {
     Return, Print, Pop, Call, Closure,
@@ -173,6 +173,7 @@ impl Display for Value {
     }
 }
 
+#[derive(Clone)]
 /// `Chunk` is used to store loads of `OpCode`.
 /// All of the member of `Chunk` is private, because the members are related to each
 /// other (instead of pure data container), which will cause chaos if make them public.

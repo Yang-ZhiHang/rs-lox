@@ -1,6 +1,6 @@
-/// `lib.rs` used to make it available to call functions for integration test in `tests/`.
 pub mod chunk;
 pub mod common;
+pub mod constant;
 pub mod file;
 pub mod heap;
 pub mod object;

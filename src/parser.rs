@@ -2,18 +2,15 @@
 use crate::common::disassemble;
 use crate::{
     chunk::{Chunk, IntoU8, OpCode, Value},
+    constant::{MAX_LOCAL_SIZE, MAX_UPVALUE_SIZE},
     heap::Heap,
     object::{FunctionType, ObjData, ObjFunction, ObjIndex},
     tokenizer::{Token, TokenType, Tokenizer, token_cmp},
 };
 
-pub const U8_MAX: usize = u8::MAX as usize;
-pub const MAX_LOCAL_SIZE: usize = U8_MAX;
-pub const MAX_UPVALUE_SIZE: usize = U8_MAX;
-
 /// Local variable.
 #[allow(unused)]
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Local {
     token: Token,
     /// The scope level of local variable.
@@ -33,7 +30,7 @@ impl Local {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Upvalue {
     idx: usize,
     is_local: bool,
@@ -61,8 +58,6 @@ pub struct Context {
     local_count: usize,
     /// Stack array stores upvalues.
     upvalues: [Option<Upvalue>; MAX_LOCAL_SIZE],
-    /// Amount of upvalues.
-    upvalue_count: usize,
     /// The depth of current code block.
     scope_depth: usize,
 }
@@ -71,18 +66,17 @@ impl Context {
     /// Create `Context` with empty local variable array.
     ///
     /// `scope_depth` defaults to 0.
-    pub fn new(heap: &mut Heap, name_idx: ObjIndex, func_type: FunctionType) -> Self {
+    pub fn new(heap: &mut Heap, name_idx: ObjIndex, func_type: FunctionType, depth: usize) -> Self {
         // Temporarily set arity to zero. We will update it in `function()` after parsing parameter list.
         let func_obj_idx = heap.write_func(name_idx, 0);
         let mut ctx = Self {
             caller: None,
             func_obj_idx,
             func_type,
-            locals: [const { None }; MAX_LOCAL_SIZE],
+            locals: [None; MAX_LOCAL_SIZE],
             local_count: 0,
-            upvalues: [const { None }; MAX_UPVALUE_SIZE],
-            upvalue_count: 0,
-            scope_depth: 0,
+            upvalues: [None; MAX_UPVALUE_SIZE],
+            scope_depth: depth,
         };
         // The slot 0 is used for storing function calling object.
         ctx.locals[0] = Some(Local::new(Token::default(), Some(0), false));
@@ -234,7 +228,7 @@ pub struct Parser<'heap> {
 impl<'heap> Parser<'heap> {
     pub fn new(tokenizer: Tokenizer, heap: &'heap mut Heap) -> Self {
         let name_idx = heap.write_string("<Global>");
-        let ctx = Context::new(heap, name_idx, FunctionType::Global);
+        let ctx = Context::new(heap, name_idx, FunctionType::Global, 0);
         Self {
             tokenizer,
             heap,
@@ -383,13 +377,18 @@ impl<'heap> Parser<'heap> {
                 other => panic!("Expected Object, got {:?}", other),
             }
         } else {
-            // Perf: Maybe we can set `name_obj_idx` to `Option` and not to write string to heap to 
-            // reduce the usage of memory?
+            // Perf: Maybe we can set `name_obj_idx` to `Option` instead of writing string of local function
+            // to heap for reducing the usage of memory?
             self.heap.write_string(unsafe {
                 std::str::from_utf8_unchecked(self.prev.name(self.tokenizer.source()))
             })
         };
-        let ctx = Context::new(self.heap, name_obj_idx, FunctionType::Function);
+        let ctx = Context::new(
+            self.heap,
+            name_obj_idx,
+            FunctionType::Function,
+            self.ctx().scope_depth,
+        );
         self.update_ctx(ctx);
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expected '(' after function name.");
@@ -416,26 +415,17 @@ impl<'heap> Parser<'heap> {
             "Expected '{' after function signature.",
         );
         self.block();
+        let upvalues = self.ctx().upvalues;
         let func_obj_idx = self.end_compile();
         self.emit_with_constant_idx(OpCode::Closure, Value::Object(func_obj_idx));
-        // Perf: Maybe we can make it reference traverse?
-        let upvalues: Vec<_> = self
-            .ctx
-            .as_ref()
-            .unwrap()
-            .upvalues
-            .iter()
-            .flatten()
-            .copied()
-            .collect();
-        for v in upvalues {
+        for v in upvalues.iter().flatten() {
             self.emit_bytes(v.is_local, v.idx);
         }
     }
 
     /// Update current context according to the passing-in one.
     pub fn update_ctx(&mut self, mut ctx: Context) {
-        // Caller will not be `None` unless meets the last `end_compile`.
+        // Caller will never be `None` unless meets the last `end_compile`.
         let caller_ctx = self.ctx.take().unwrap();
         ctx.caller = Some(Box::new(caller_ctx));
         self.ctx = Some(ctx);
@@ -474,10 +464,12 @@ impl<'heap> Parser<'heap> {
                 return i;
             }
         }
-        let upvalue_count = self.ctx().upvalue_count;
+        let func_obj_idx = self.ctx().func_obj_idx;
+        let func = self.heap.get_func_mut(func_obj_idx);
+        let upvalue_count = func.upvalues_count;
+        func.upvalues_count += 1;
         self.ctx_mut().upvalues[upvalue_count] = Some(upvalue);
-        self.ctx_mut().upvalue_count += 1;
-        self.ctx().upvalue_count - 1
+        upvalue_count
     }
 
     pub fn statement(&mut self) {
@@ -1033,7 +1025,7 @@ impl<'heap> Parser<'heap> {
             ctx.caller.as_ref()?;
             let caller = ctx.caller.as_mut().unwrap();
             let locals = &caller.locals;
-            for (i, v) in locals.iter().flatten().enumerate() {
+            for (i, v) in locals.iter().flatten().enumerate().skip(1) {
                 if token_cmp(&v.token, t, self.tokenizer.source()) && v.depth.is_some() {
                     // Judge if the upvalue is from the direct caller.
                     let is_local = caller.scope_depth == depth - 1;

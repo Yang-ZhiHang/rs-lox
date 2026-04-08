@@ -3,7 +3,10 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
 };
 
-use crate::chunk::Chunk;
+use crate::{
+    chunk::{Chunk, Value},
+    constant::MAX_UPVALUE_SIZE,
+};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct ObjIndex {
@@ -37,7 +40,10 @@ impl Display for ObjIndex {
 pub enum ObjData {
     String(ObjString),
     Function(ObjFunction),
-    Closure(ObjClosure),
+    /// `ObjClosure` have a large static stack, in order to make the size of `ObjData` smaller, we put
+    /// it in heap (Using `Box`).
+    Closure(Box<ObjClosure>),
+    Upvalue(ObjUpvalue),
 }
 
 impl Display for ObjData {
@@ -51,6 +57,9 @@ impl Display for ObjData {
             }
             ObjData::Closure(obj_closure) => {
                 write!(f, "{}", obj_closure.func)
+            }
+            ObjData::Upvalue(obj_upval) => {
+                write!(f, "{}", obj_upval.val)
             }
         }
     }
@@ -77,9 +86,14 @@ impl ObjString {
 }
 
 pub struct ObjFunction {
+    /// The object index of identifier of the function.
     pub name: ObjIndex,
+    /// The byte chunk of function body.
     pub chunk: Chunk,
+    /// The number of function parameters.
     pub arity: usize,
+    /// The number of upvalues the function uses.
+    pub upvalues_count: usize,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -101,22 +115,38 @@ impl ObjFunction {
             name,
             chunk: Chunk::new(),
             arity,
+            upvalues_count: 0,
         }
     }
 }
 
+#[derive(Clone, Copy)]
+/// Make a upvalue object to manage closed upvalues.
+pub struct ObjUpvalue {
+    pub val: Value,
+}
+
+impl ObjUpvalue {
+    pub fn new(val: Value) -> Self {
+        Self { val }
+    }
+}
+
 pub struct ObjClosure {
-    pub obj: ObjIndex,
     /// The object index of function object.
     pub func: ObjIndex,
+    /// List of upvalues.
+    pub upvalues: [Option<ObjIndex>; MAX_UPVALUE_SIZE],
+    /// The amount of upvalues.
+    pub upvalue_count: usize,
 }
 
 impl ObjClosure {
-    pub fn new(func: ObjIndex) -> Self {
+    pub fn new(func_obj_idx: ObjIndex, upvalue_count: usize) -> Self {
         Self {
-            // TODO: obj not implemented.
-            obj: ObjIndex::new(0),
-            func,
+            func: func_obj_idx,
+            upvalues: [None; MAX_UPVALUE_SIZE],
+            upvalue_count,
         }
     }
 }

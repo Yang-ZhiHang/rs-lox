@@ -14,7 +14,12 @@ pub fn simple_instruction(_chunk: &Chunk, offset: usize, opcode: OpCode) -> usiz
 }
 
 /// Print the constant operation code with value to the console.
-pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: OpCode) -> usize {
+pub fn constant_instruction(
+    chunk: &Chunk,
+    heap: &Heap,
+    mut offset: usize,
+    opcode: OpCode,
+) -> usize {
     let val = chunk.constants()[chunk.code()[offset + 1] as usize];
     match val {
         Value::Object(obj_idx) => match heap.get(obj_idx) {
@@ -23,8 +28,19 @@ pub fn constant_instruction(chunk: &Chunk, heap: &Heap, offset: usize, opcode: O
             }
             ObjData::Function(obj_func) => {
                 println!("{:<8}\t<fn {}>", opcode, heap.get_string(obj_func.name));
+                let upvalues_count = obj_func.upvalues_count;
+                for _ in 0..upvalues_count {
+                    let is_local = if chunk.code()[offset + 2] == 1 {
+                        "local"
+                    } else {
+                        "upvalue"
+                    };
+                    let idx = chunk.code()[offset + 2];
+                    println!("\t\t{:<8}\t<index {}>", is_local, idx);
+                    offset += 2;
+                }
             }
-            ObjData::Closure(_) => {
+            ObjData::Closure(_) | ObjData::Upvalue(_) => {
                 unreachable!()
             }
         },
@@ -93,9 +109,11 @@ pub fn disassemble_instruction(chunk: &Chunk, heap: &Heap, offset: usize) -> usi
             OpCode::JumpIfFalse | OpCode::Jump | OpCode::Loop => {
                 jump_instruction(chunk, offset, opcode)
             }
-            OpCode::GetLocal | OpCode::SetLocal | OpCode::Call => {
-                index_instruction(chunk, offset, opcode)
-            }
+            OpCode::GetLocal
+            | OpCode::SetLocal
+            | OpCode::Call
+            | OpCode::GetUpvalue
+            | OpCode::SetUpvalue => index_instruction(chunk, offset, opcode),
             _ => simple_instruction(chunk, offset, opcode),
         },
         None => {

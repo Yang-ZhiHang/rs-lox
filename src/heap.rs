@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjString};
+use crate::object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjString, ObjUpvalue};
 
 pub struct Heap {
     /// The list of object.
@@ -65,11 +65,31 @@ impl Heap {
     }
 
     #[inline(always)]
-    /// Return a immutable reference of function object.
-    /// Ensure the passing-in index is a index of function object.
+    /// Return a immutable reference of closure object.
+    /// Ensure the passing-in index is a index of closure object.
     pub fn get_closure(&self, idx: ObjIndex) -> &ObjClosure {
         match self.objs.get(idx.val) {
             Some(ObjData::Closure(c)) => c,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    /// Return a immutable reference of upvalue object.
+    /// Ensure the passing-in index is a index of upvalue object.
+    pub fn get_upvalue(&self, idx: ObjIndex) -> &ObjUpvalue {
+        match self.objs.get(idx.val) {
+            Some(ObjData::Upvalue(v)) => v,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    /// Return a mutable reference of upvalue object.
+    /// Ensure the passing-in index is a index of upvalue object.
+    pub fn get_upvalue_mut(&mut self, idx: ObjIndex) -> &mut ObjUpvalue {
+        match self.objs.get_mut(idx.val) {
+            Some(ObjData::Upvalue(v)) => v,
             _ => unreachable!(),
         }
     }
@@ -102,7 +122,13 @@ impl Heap {
 
     /// Write the closure object into heap and return the index.
     pub fn write_closure(&mut self, closure: ObjClosure) -> ObjIndex {
-        let idx = self.write(ObjData::Closure(closure));
+        let idx = self.write(ObjData::Closure(Box::new(closure)));
+        ObjIndex::new(idx)
+    }
+
+    /// Write the upvalue object into heap and return the index.
+    pub fn write_upvalue(&mut self, upvalue: ObjUpvalue) -> ObjIndex {
+        let idx = self.write(ObjData::Upvalue(upvalue));
         ObjIndex::new(idx)
     }
 }

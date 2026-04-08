@@ -1,7 +1,8 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
+    constant::{MAX_FRAME_SIZE, MAX_STACK_SIZE},
     heap::Heap,
-    object::{ObjClosure, ObjData, ObjIndex},
+    object::{ObjClosure, ObjData, ObjIndex, ObjUpvalue},
     table::HashTable,
 };
 
@@ -35,15 +36,13 @@ macro_rules! binary_op {
     }};
 }
 
-const FRAMES_MAX: usize = 64;
-const STACK_MAX: usize = FRAMES_MAX * u8::MAX as usize;
-
 pub enum InterpretResult {
     Ok,
     CompileError,
     RuntimeError,
 }
 
+#[derive(Clone, Copy)]
 pub struct CallFrame {
     pc: usize,
     /// Object index of closure.
@@ -62,13 +61,13 @@ impl CallFrame {
     }
 
     /// Return the value from vm's stack according to relative offset.
-    pub fn get(&self, stack: &[Value], offset: usize) -> Value {
-        stack[self.slot_offset + offset]
+    pub fn get(&self, stack: &[Option<Value>], offset: usize) -> Value {
+        stack[self.slot_offset + offset].unwrap()
     }
 
     /// Set the value in vm's stack according to relative offset.
-    pub fn set(&self, stack: &mut [Value], offset: usize, v: Value) {
-        stack[self.slot_offset + offset] = v;
+    pub fn set(&self, stack: &mut [Option<Value>], offset: usize, v: Value) {
+        stack[self.slot_offset + offset] = Some(v);
     }
 }
 
@@ -76,12 +75,12 @@ pub struct VM {
     /// The heap that stores objects (dynamic length).
     pub heap: Heap,
     /// Function call frames.
-    frames: [Option<CallFrame>; FRAMES_MAX],
+    frames: [Option<CallFrame>; MAX_FRAME_SIZE],
     /// The depth of function call.
     frame_count: usize,
     /// The stack to stored temporary value in expression.
     /// Q: wheater to make it dynamic vector or just static?
-    stack: [Value; STACK_MAX],
+    stack: [Option<Value>; MAX_STACK_SIZE],
     /// The index of next element.
     stack_top: usize,
     /// The hash table to store identifier.
@@ -100,9 +99,9 @@ impl VM {
     pub fn new() -> Self {
         Self {
             heap: Heap::new(),
-            frames: [const { None }; FRAMES_MAX],
+            frames: [None; MAX_FRAME_SIZE],
             frame_count: 0,
-            stack: [Value::Nil; STACK_MAX],
+            stack: [None; MAX_STACK_SIZE],
             stack_top: 0,
             global_variables: HashTable::new(),
         }
@@ -110,7 +109,7 @@ impl VM {
 
     /// Interpret the given byte chunk.
     pub fn interpret(&mut self, func_obj_idx: ObjIndex) -> InterpretResult {
-        let closure = ObjClosure::new(func_obj_idx);
+        let closure = ObjClosure::new(func_obj_idx, 0);
         let closure_obj_idx = self.heap.write_closure(closure);
         self.push(Value::Object(closure_obj_idx));
         self.call(closure_obj_idx, 0);
@@ -125,26 +124,19 @@ impl VM {
             let frame = self.frames[self.frame_count - 1].as_mut().unwrap();
             let closure = self.heap.get_closure(frame.closure_obj_idx);
             let func = self.heap.get_func(closure.func);
-            let chunk: &Chunk = &func.chunk;
+            // Using `.clone()` instead of using reference to avoid `mutable borrow after immutable borrow`.
+            // Chunk is read-only, so cloning it is not a problem.
+            let chunk = func.chunk.clone();
             let pc: &mut usize = &mut frame.pc;
             if *pc > chunk.code().len() {
                 break;
             }
             let slot_offset = frame.slot_offset;
-            let opcode = Self::read_byte(chunk, pc);
+            let opcode = Self::read_byte(&chunk, pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
-                    OpCode::Closure => {
-                        if let Value::Object(func_obj_idx) = Self::read_constant(chunk, pc) {
-                            let closure = ObjClosure::new(func_obj_idx);
-                            let closure_idx = self.heap.write_closure(closure);
-                            self.push(Value::Object(closure_idx));
-                        } else {
-                            self.runtime_error("Invalid use of `Closure` operation code.");
-                        }
-                    }
                     OpCode::Constant => {
-                        let val = Self::read_constant(chunk, pc);
+                        let val = Self::read_constant(&chunk, pc);
                         self.push(val);
                     }
                     OpCode::Print => {
@@ -158,11 +150,12 @@ impl VM {
                             self.pop();
                             return InterpretResult::Ok;
                         }
+                        // Destory the call frame of callee by fallback stack pointer.
                         self.stack_top = slot_offset;
                         self.push(ret);
                     }
                     OpCode::Call => {
-                        let arg_count = Self::read_byte(chunk, pc) as usize;
+                        let arg_count = Self::read_byte(&chunk, pc) as usize;
                         if !self.call_value(arg_count) {
                             return InterpretResult::RuntimeError;
                         }
@@ -171,26 +164,26 @@ impl VM {
                         self.pop();
                     }
                     OpCode::Loop => {
-                        let offset = Self::read_short(chunk, pc);
+                        let offset = Self::read_short(&chunk, pc);
                         frame.pc -= offset;
                     }
                     OpCode::JumpIfFalse => {
                         let val = Self::peek(&self.stack, self.stack_top, 0);
-                        let offset = Self::read_short(chunk, pc);
+                        let offset = Self::read_short(&chunk, pc);
                         frame.pc += if val.is_falsey() { offset } else { 0 };
                     }
                     OpCode::Jump => {
-                        let offset = Self::read_short(chunk, pc);
+                        let offset = Self::read_short(&chunk, pc);
                         frame.pc += offset;
                     }
                     OpCode::DefineGlobal => {
-                        if let Value::Object(obj_idx) = Self::read_constant(chunk, pc) {
+                        if let Value::Object(obj_idx) = Self::read_constant(&chunk, pc) {
                             let v = self.pop();
                             self.global_variables.set(obj_idx, v);
                         }
                     }
                     OpCode::GetGlobal => {
-                        if let Value::Object(obj_idx) = Self::read_constant(chunk, pc) {
+                        if let Value::Object(obj_idx) = Self::read_constant(&chunk, pc) {
                             match self.global_variables.get(&obj_idx) {
                                 Some(e) => {
                                     let v = e.v;
@@ -204,7 +197,7 @@ impl VM {
                         }
                     }
                     OpCode::SetGlobal => {
-                        if let Value::Object(obj_idx) = Self::read_constant(chunk, pc) {
+                        if let Value::Object(obj_idx) = Self::read_constant(&chunk, pc) {
                             let v = Self::peek(&self.stack, self.stack_top, 0);
                             match &mut self.global_variables.get_mut(&obj_idx) {
                                 Some(e) => {
@@ -218,20 +211,59 @@ impl VM {
                         }
                     }
                     OpCode::GetLocal => {
-                        let slot = Self::read_byte(chunk, pc);
+                        let slot = Self::read_byte(&chunk, pc);
                         let val = frame.get(&self.stack, slot as usize);
                         self.push(val);
                     }
                     OpCode::SetLocal => {
-                        let slot = Self::read_byte(chunk, pc);
+                        let slot = Self::read_byte(&chunk, pc);
                         let val = Self::peek(&self.stack, self.stack_top, 0);
                         frame.set(&mut self.stack, slot as usize, val);
                     }
-                    OpCode::GetUpvalue | OpCode::SetUpvalue => {
-                        unimplemented!()
+                    OpCode::Closure => {
+                        if let Value::Object(func_obj_idx) = Self::read_constant(&chunk, pc) {
+                            let func = self.heap.get_func(func_obj_idx);
+                            let mut new_closure =
+                                ObjClosure::new(func_obj_idx, func.upvalues_count);
+                            for i in 0usize..new_closure.upvalue_count {
+                                let is_local = Self::read_byte(&chunk, pc);
+                                let idx = Self::read_byte(&chunk, pc) as usize;
+                                // Get the upvalue index in stack (Unclosed upvalue).
+                                new_closure.upvalues[i] = if is_local != 0 {
+                                    let upval_obj_idx = Self::capture_upvalue(
+                                        self.stack[frame.slot_offset + idx].unwrap(),
+                                        &mut self.heap,
+                                    );
+                                    Some(upval_obj_idx)
+                                } else {
+                                    let current_closure =
+                                        self.heap.get_closure(frame.closure_obj_idx);
+                                    current_closure.upvalues[idx]
+                                }
+                            }
+                            let closure_idx = self.heap.write_closure(new_closure);
+                            self.push(Value::Object(closure_idx));
+                        } else {
+                            self.runtime_error("Invalid use of `Closure` operation code.");
+                        }
+                    }
+                    OpCode::GetUpvalue => {
+                        // Read the index in upvalues stack.
+                        let slot = Self::read_byte(&chunk, pc);
+                        let closure = self.heap.get_closure(frame.closure_obj_idx);
+                        let upval_obj_idx = closure.upvalues[slot as usize].unwrap();
+                        let upval = self.heap.get_upvalue(upval_obj_idx).val;
+                        self.push(upval);
+                    }
+                    OpCode::SetUpvalue => {
+                        let slot = Self::read_byte(&chunk, pc);
+                        let closure = self.heap.get_closure(frame.closure_obj_idx);
+                        let upval_obj_idx = closure.upvalues[slot as usize].unwrap();
+                        let upval_obj = self.heap.get_upvalue_mut(upval_obj_idx);
+                        upval_obj.val = Self::peek(&self.stack, self.stack_top, 0);
                     }
                     OpCode::Negate => {
-                        let val = &mut self.stack[self.stack_top - 1];
+                        let val = self.stack[self.stack_top - 1].as_mut().unwrap();
                         match val {
                             Value::Number(v) => *v = -*v,
                             _ => {
@@ -258,7 +290,7 @@ impl VM {
                     OpCode::Less => binary_op!(self, bool, <),
                     OpCode::Greater => binary_op!(self, bool, >),
                     OpCode::Not => {
-                        let val = &mut self.stack[self.stack_top - 1];
+                        let val = self.stack[self.stack_top - 1].as_mut().unwrap();
                         *val = Value::Bool(val.is_falsey());
                     }
                     OpCode::True => self.push(Value::Bool(true)),
@@ -305,11 +337,11 @@ impl VM {
 
     /// Push a value to the stack of vm.
     pub fn push(&mut self, value: Value) {
-        if self.stack_top == STACK_MAX {
+        if self.stack_top == MAX_STACK_SIZE {
             // TODO: don't panic.
             panic!("Stack overflow!");
         }
-        self.stack[self.stack_top] = value;
+        self.stack[self.stack_top] = Some(value);
         self.stack_top += 1;
     }
 
@@ -320,24 +352,24 @@ impl VM {
             panic!("Empty stack cannot be returned!");
         }
         self.stack_top -= 1;
-        self.stack[self.stack_top]
+        self.stack[self.stack_top].unwrap()
     }
 
     /// Return a mutable reference to the current top value of the stack.
     /// Used by binary_op! to mutate the top value in-place without an ex
     /// tra modify on `stack_top`.
     pub fn stack_top_mut(&mut self) -> &mut Value {
-        &mut self.stack[self.stack_top - 1]
+        self.stack[self.stack_top - 1].as_mut().unwrap()
     }
 
     /// Return the value away `n` from top element of the stack.
     ///
     /// Here, we only passing-in `stack` instead of `self` to borrow only the member.
-    pub fn peek(stack: &[Value], stack_top: usize, n: usize) -> Value {
+    pub fn peek(stack: &[Option<Value>], stack_top: usize, n: usize) -> Value {
         if n > stack_top - 1 {
             panic!("Cannot peek index under zero.")
         }
-        stack[stack_top - 1 - n]
+        stack[stack_top - 1 - n].unwrap()
     }
 
     /// Print runtime error to console output.
@@ -358,7 +390,7 @@ impl VM {
 
     /// Reset the stack of vm.
     pub fn reset_stack(&mut self) {
-        self.stack = [Value::Nil; STACK_MAX];
+        self.stack = [None; MAX_STACK_SIZE];
         self.stack_top = 0;
         self.frame_count = 0;
     }
@@ -384,7 +416,7 @@ impl VM {
 
     /// Call the function object with arguments.
     pub fn call(&mut self, closure_obj_idx: ObjIndex, arg_count: usize) -> bool {
-        if self.frame_count == FRAMES_MAX {
+        if self.frame_count == MAX_FRAME_SIZE {
             self.runtime_error("Stack overflow");
             return false;
         }
@@ -397,10 +429,17 @@ impl VM {
             ));
             return false;
         }
+        // Create a new call frame for the function call.
         // `self.stack[slot_offset]` must be a object index of function.
         let frame = CallFrame::new(closure_obj_idx, self.stack_top - arg_count - 1);
         self.frames[self.frame_count] = Some(frame);
         self.frame_count += 1;
         true
+    }
+
+    /// Allocate a memory in heap for upvalue.
+    pub fn capture_upvalue(val: Value, heap: &mut Heap) -> ObjIndex {
+        let obj_upval = ObjUpvalue::new(val);
+        heap.write_upvalue(obj_upval)
     }
 }

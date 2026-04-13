@@ -1,0 +1,13 @@
+fun makeCounter() {
+  let count = 0;
+  fun counter() {
+    count = count + 1;
+    return count;
+  }
+  return counter;
+}
+
+let counter = makeCounter();
+print counter(); // 1
+print counter(); // 2
+print counter(); // 3

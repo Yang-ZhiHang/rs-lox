@@ -13,11 +13,14 @@ For this interpreter learning project, we don't strictly obey the official gramm
 3. Add `switch` statement.
 4. Add `+=`、`-=`、`*=`、`/=` assignment operators.
 
+As using raw pointer in `Rust` is unsafe, so we use `ObjIndex` to represent the index of object in the heap. This is a safe way to implement the virtual machine based interpreter.
+
 ## Features
 
 - [x] Single-pass interpreter which performs better than tree-walk one.
 - [x] Virtual machine based interpreter.
 - [x] Instruction set based on stack (A better performance one is based on register).
+- [x] Support advanced features of closure.
 
 ## Grammar
 
@@ -103,6 +106,25 @@ fun fibonacci(n) {
 print fibonacci(10); // 55
 ```
 
+### Closure
+
+```
+fun makeCounter() {
+  let count = 0;
+  fun counter() {
+    count = count + 1;
+    return count;
+  }
+  return counter;
+}
+
+let counter = makeCounter();
+print counter(); // 1
+print counter(); // 2
+print counter(); // 3
+```
+
 ## References
 
 - [Crafting Interpreters](https://craftinginterpreters.com): Follow the step of Robert Nystrom to make your own programming language (Implemented by Java and C).
+- [Pratt Parsers](https://journal.stuffwithstuff.com/2011/03/19/pratt-parsers-expression-parsing-made-easy/): A better way to parse expression.

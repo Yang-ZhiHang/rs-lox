@@ -1,0 +1,14 @@
+fun outer(x) {
+    fun inner() {
+        print x;
+    }
+    return inner;
+}
+
+let a = outer("Hello, ");
+let b = outer("Lox");
+let c = outer("!");
+
+a();
+b();
+c();

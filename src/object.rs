@@ -20,6 +20,12 @@ impl From<usize> for ObjIndex {
     }
 }
 
+impl Display for ObjIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<obj {:06}>", self.val)
+    }
+}
+
 impl ObjIndex {
     pub fn new(id: usize) -> Self {
         let mut h = DefaultHasher::new();
@@ -28,12 +34,6 @@ impl ObjIndex {
             val: id,
             hash: h.finish(),
         }
-    }
-}
-
-impl Display for ObjIndex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:06}", self.val)
     }
 }
 
@@ -56,10 +56,10 @@ impl Display for ObjData {
                 write!(f, "{}", obj_func)
             }
             ObjData::Closure(obj_closure) => {
-                write!(f, "{}", obj_closure.func)
+                write!(f, "{}", obj_closure)
             }
             ObjData::Upvalue(obj_upval) => {
-                write!(f, "{}", obj_upval.val)
+                write!(f, "{}", obj_upval)
             }
         }
     }
@@ -121,14 +121,79 @@ impl ObjFunction {
 }
 
 #[derive(Clone, Copy)]
+pub enum UpvalueState {
+    Location(usize),
+    Closed(Value),
+}
+
+impl Display for UpvalueState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UpvalueState::Location(idx) => write!(f, "<Local {}>", idx),
+            UpvalueState::Closed(val) => write!(f, "Closed({})", val),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 /// Make a upvalue object to manage closed upvalues.
+/// The upvalue is `Location` if it's open, else closed.
 pub struct ObjUpvalue {
-    pub val: Value,
+    val: UpvalueState,
+}
+
+impl Display for ObjUpvalue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.val)
+    }
 }
 
 impl ObjUpvalue {
-    pub fn new(val: Value) -> Self {
-        Self { val }
+    /// Create a open upvalue object.
+    pub fn location(idx: usize) -> Self {
+        Self {
+            val: UpvalueState::Location(idx),
+        }
+    }
+
+    /// Create a closed upvalue object.
+    pub fn closed(val: Value) -> Self {
+        Self {
+            val: UpvalueState::Closed(val),
+        }
+    }
+
+    /// Check if the upvalue is open.
+    pub fn is_open(&self) -> bool {
+        matches!(self.val, UpvalueState::Location(_))
+    }
+
+    /// Check if the upvalue is closed.
+    pub fn is_closed(&self) -> bool {
+        matches!(self.val, UpvalueState::Closed(_))
+    }
+
+    pub fn as_location(&self) -> usize {
+        match self.val {
+            UpvalueState::Location(idx) => idx,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Return a immutable reference to the value of the upvalue, only if it's closed.
+    pub fn as_val(&self) -> &Value {
+        match self.val {
+            UpvalueState::Closed(ref val) => val,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Return a mutable reference to the value of the upvalue, only if it's closed.
+    pub fn as_val_mut(&mut self) -> &mut Value {
+        match self.val {
+            UpvalueState::Closed(ref mut val) => val,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -139,6 +204,12 @@ pub struct ObjClosure {
     pub upvalues: [Option<ObjIndex>; MAX_UPVALUE_SIZE],
     /// The amount of upvalues.
     pub upvalue_count: usize,
+}
+
+impl Display for ObjClosure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.func)
+    }
 }
 
 impl ObjClosure {

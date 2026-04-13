@@ -149,6 +149,8 @@ impl<'heap> ParseRule<'heap> {
 /// Returns the parse rule for the given token type.
 /// Using a `match` instead of a static array avoids lifetime and fn-pointer coercion
 /// issues that arise from `Parser` carrying a lifetime parameter.
+/// Perf: Maybe we can make `match` to table search according to `TokenType` enum which has a better performance
+/// and cache consistency.
 #[rustfmt::skip]
 pub fn get_rule<'heap>(tt: TokenType) -> ParseRule<'heap> {
     match tt {
@@ -390,6 +392,8 @@ impl<'heap> Parser<'heap> {
             self.ctx().scope_depth,
         );
         self.update_ctx(ctx);
+        // There doesn't have a corresponding `end_scope`. Because we end Compiler completely when we reach the end 
+        // of the function body, there’s no need to close the lingering outermost scope.
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expected '(' after function name.");
         if !self.check(TokenType::RightParen) {
@@ -675,6 +679,13 @@ impl<'heap> Parser<'heap> {
                 .unwrap()
                 > self.ctx().scope_depth
         {
+            if self.ctx().locals[self.ctx().local_count - 1]
+                .as_ref()
+                .unwrap()
+                .is_captured
+            {
+                self.emit_byte(OpCode::CloseUpvalue);
+            }
             self.emit_byte(OpCode::Pop);
             self.ctx_mut().local_count -= 1;
         }
@@ -1024,9 +1035,11 @@ impl<'heap> Parser<'heap> {
             // Return `None` if we recursively reach the global scope.
             ctx.caller.as_ref()?;
             let caller = ctx.caller.as_mut().unwrap();
-            let locals = &caller.locals;
+            let locals = &mut caller.locals;
             for (i, v) in locals.iter().flatten().enumerate().skip(1) {
                 if token_cmp(&v.token, t, self.tokenizer.source()) && v.depth.is_some() {
+                    // Mark local variable as captured by closure.
+                    locals[i].as_mut().unwrap().is_captured = true;
                     // Judge if the upvalue is from the direct caller.
                     let is_local = caller.scope_depth == depth - 1;
                     let upvalue_idx = self.add_upvalue(i, is_local);

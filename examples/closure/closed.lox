@@ -1,12 +1,17 @@
-fun outer() {
-  let x = "outside";
-  fun inner() {
-    x = "inside";
-    print x;
-  }
+let globalSet;
+let globalGet;
 
-  return inner;
+fun main() {
+  let a = "initial";
+
+  fun set() { a = "updated"; }
+  fun get() { print a; }
+
+  globalSet = set;
+  globalGet = get;
 }
 
-let closure = outer();
-closure();
+main();
+globalSet();
+// Print "updated"
+globalGet();

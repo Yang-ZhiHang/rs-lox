@@ -99,6 +99,11 @@ impl Heap {
         self.objs.push(obj);
         self.objs.len() - 1
     }
+    
+    /// Write the object into heap at the given index.
+    pub fn write_at(&mut self, obj_idx: ObjIndex, obj: ObjData) {
+        self.objs[obj_idx.val] = obj;
+    }
 
     /// Write the string object into heap and return the index.
     ///

@@ -1,6 +1,6 @@
 use crate::{
     chunk::{Chunk, OpCode, Value},
-    constant::{MAX_FRAME_SIZE, MAX_STACK_SIZE},
+    constant::{MAX_FRAME_SIZE, MAX_STACK_SIZE, MAX_UPVALUE_SIZE},
     heap::Heap,
     object::{ObjClosure, ObjData, ObjIndex, ObjUpvalue},
     table::HashTable,
@@ -85,6 +85,10 @@ pub struct VM {
     stack_top: usize,
     /// The hash table to store identifier.
     global_variables: HashTable,
+    /// The array storing the index of open upvalues in vm's heap.
+    open_upvalues: [Option<ObjIndex>; MAX_UPVALUE_SIZE],
+    /// The amount of open upvalues.
+    open_upvalues_count: usize,
 }
 
 impl Default for VM {
@@ -104,6 +108,8 @@ impl VM {
             stack: [None; MAX_STACK_SIZE],
             stack_top: 0,
             global_variables: HashTable::new(),
+            open_upvalues: [None; MAX_UPVALUE_SIZE],
+            open_upvalues_count: 0,
         }
     }
 
@@ -131,7 +137,7 @@ impl VM {
             if *pc > chunk.code().len() {
                 break;
             }
-            let slot_offset = frame.slot_offset;
+            let frame_slot_offset = frame.slot_offset;
             let opcode = Self::read_byte(&chunk, pc);
             match OpCode::from_repr(opcode) {
                 Some(opcode) => match opcode {
@@ -145,13 +151,14 @@ impl VM {
                     }
                     OpCode::Return => {
                         let ret = self.pop();
+                        self.close_upvalue(frame_slot_offset);
                         self.frame_count -= 1;
                         if self.frame_count == 0 {
                             self.pop();
                             return InterpretResult::Ok;
                         }
                         // Destory the call frame of callee by fallback stack pointer.
-                        self.stack_top = slot_offset;
+                        self.stack_top = frame_slot_offset;
                         self.push(ret);
                     }
                     OpCode::Call => {
@@ -231,8 +238,10 @@ impl VM {
                                 // Get the upvalue index in stack (Unclosed upvalue).
                                 new_closure.upvalues[i] = if is_local != 0 {
                                     let upval_obj_idx = Self::capture_upvalue(
-                                        self.stack[frame.slot_offset + idx].unwrap(),
+                                        frame.slot_offset + idx,
                                         &mut self.heap,
+                                        &mut self.open_upvalues,
+                                        &mut self.open_upvalues_count,
                                     );
                                     Some(upval_obj_idx)
                                 } else {
@@ -252,15 +261,33 @@ impl VM {
                         let slot = Self::read_byte(&chunk, pc);
                         let closure = self.heap.get_closure(frame.closure_obj_idx);
                         let upval_obj_idx = closure.upvalues[slot as usize].unwrap();
-                        let upval = self.heap.get_upvalue(upval_obj_idx).val;
-                        self.push(upval);
+                        let upval_obj = self.heap.get_upvalue(upval_obj_idx);
+                        if upval_obj.is_open() {
+                            let val = self.stack[upval_obj.as_location()].unwrap();
+                            self.push(val);
+                        } else if upval_obj.is_closed() {
+                            let val = *upval_obj.as_val();
+                            self.push(val);
+                        } else {
+                            // TODO: Error handling
+                        }
                     }
                     OpCode::SetUpvalue => {
                         let slot = Self::read_byte(&chunk, pc);
                         let closure = self.heap.get_closure(frame.closure_obj_idx);
                         let upval_obj_idx = closure.upvalues[slot as usize].unwrap();
                         let upval_obj = self.heap.get_upvalue_mut(upval_obj_idx);
-                        upval_obj.val = Self::peek(&self.stack, self.stack_top, 0);
+                        let val = Self::peek(&self.stack, self.stack_top, 0);
+                        if upval_obj.is_open() {
+                            self.stack[upval_obj.as_location()] = Some(val);
+                        } else if upval_obj.is_closed() {
+                            *upval_obj.as_val_mut() = val;
+                        } else {
+                            // TODO: Error handling.
+                        }
+                    }
+                    OpCode::CloseUpvalue => {
+                        self.close_upvalue(self.stack_top - 1);
                     }
                     OpCode::Negate => {
                         let val = self.stack[self.stack_top - 1].as_mut().unwrap();
@@ -438,8 +465,37 @@ impl VM {
     }
 
     /// Allocate a memory in heap for upvalue.
-    pub fn capture_upvalue(val: Value, heap: &mut Heap) -> ObjIndex {
-        let obj_upval = ObjUpvalue::new(val);
-        heap.write_upvalue(obj_upval)
+    pub fn capture_upvalue(
+        idx: usize,
+        heap: &mut Heap,
+        open_upvalues: &mut [Option<ObjIndex>],
+        open_upvalues_count: &mut usize,
+    ) -> ObjIndex {
+        // 1. Firstly search for existed upvalue object.
+        for upval_obj_idx in open_upvalues.iter().flatten() {
+            let obj_upval = heap.get_upvalue(*upval_obj_idx);
+            if !obj_upval.is_closed() && obj_upval.as_location() == idx {
+                return *upval_obj_idx;
+            }
+        }
+        // 2. Create a new upvalue object if it's not exist.
+        let obj_upval = ObjUpvalue::location(idx);
+        let upval_obj_idx = heap.write_upvalue(obj_upval);
+        open_upvalues[*open_upvalues_count] = Some(upval_obj_idx);
+        *open_upvalues_count += 1;
+        upval_obj_idx
+    }
+
+    /// Close the upvalue at the top of the stack.
+    pub fn close_upvalue(&mut self, offset: usize) {
+        for upval_obj_idx in self.open_upvalues.iter().flatten() {
+            let obj_upval = self.heap.get_upvalue(*upval_obj_idx);
+            if !obj_upval.is_closed() && obj_upval.as_location() >= offset {
+                let val = self.stack[obj_upval.as_location()].unwrap();
+                let closed_upval = ObjUpvalue::closed(val);
+                self.heap
+                    .write_at(*upval_obj_idx, ObjData::Upvalue(closed_upval));
+            }
+        }
     }
 }

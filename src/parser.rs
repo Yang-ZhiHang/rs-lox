@@ -166,10 +166,12 @@ pub fn get_rule<'heap>(tt: TokenType) -> ParseRule<'heap> {
         TokenType::Plus         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Term),
         TokenType::Star         => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::Slash        => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
+        TokenType::Percent      => ParseRule::new(None,                   Some(Parser::binary), Precedence::Factor),
         TokenType::MinusEqual   => ParseRule::new(None,                   None,                 Precedence::Term),
         TokenType::PlusEqual    => ParseRule::new(None,                   None,                 Precedence::Term),
         TokenType::MulEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
         TokenType::DivEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
+        TokenType::ModEqual     => ParseRule::new(None,                   None,                 Precedence::Term),
 
         TokenType::Colon        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Semicolon    => ParseRule::new(None,                   None,                 Precedence::None),
@@ -392,7 +394,7 @@ impl<'heap> Parser<'heap> {
             self.ctx().scope_depth,
         );
         self.update_ctx(ctx);
-        // There doesn't have a corresponding `end_scope`. Because we end Compiler completely when we reach the end 
+        // There doesn't have a corresponding `end_scope`. Because we end Compiler completely when we reach the end
         // of the function body, there’s no need to close the lingering outermost scope.
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expected '(' after function name.");
@@ -901,6 +903,7 @@ impl<'heap> Parser<'heap> {
             TokenType::Minus        => self.emit_byte(OpCode::Sub),
             TokenType::Star         => self.emit_byte(OpCode::Mul),
             TokenType::Slash        => self.emit_byte(OpCode::Div),
+            TokenType::Percent      => self.emit_byte(OpCode::Mod),
             TokenType::BangEqual    => self.emit_bytes(OpCode::Equal, OpCode::Not),
             TokenType::Less         => self.emit_byte(OpCode::Less),
             TokenType::Greater      => self.emit_byte(OpCode::Greater),
@@ -945,8 +948,39 @@ impl<'heap> Parser<'heap> {
     pub fn string(&mut self, _assignable: bool) {
         let slice = self.prev.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
-        let obj_idx = self.heap.write_string(s);
+        let unescaped = self.unescape(s);
+        let obj_idx = self.heap.write_string(&unescaped);
         self.emit_with_constant_idx(OpCode::Constant, Value::Object(obj_idx));
+    }
+
+    /// Process escape characters in a string.
+    fn unescape(&self, s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                if let Some(next) = chars.next() {
+                    match next {
+                        'n' => result.push('\n'),
+                        't' => result.push('\t'),
+                        'r' => result.push('\r'),
+                        '\\' => result.push('\\'),
+                        '"' => result.push('"'),
+                        _ => {
+                            // If it's an unknown escape sequence, just keep both characters
+                            result.push('\\');
+                            result.push(next);
+                        }
+                    }
+                } else {
+                    result.push('\\');
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        result
     }
 
     /// The variable handling unit of Pratt parser.
@@ -997,6 +1031,11 @@ impl<'heap> Parser<'heap> {
             self.emit_bytes(op_get, idx);
             self.expression();
             self.emit_byte(OpCode::Div);
+            self.emit_bytes(op_set, idx);
+        } else if assignable && self.next(TokenType::ModEqual) {
+            self.emit_bytes(op_get, idx);
+            self.expression();
+            self.emit_byte(OpCode::Mod);
             self.emit_bytes(op_set, idx);
         } else {
             self.emit_bytes(op_get, idx);

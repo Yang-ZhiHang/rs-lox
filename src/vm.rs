@@ -147,7 +147,7 @@ impl VM {
                     }
                     OpCode::Print => {
                         let val = self.pop();
-                        println!("{}", val.to_string(&self.heap));
+                        print!("{}", val.to_string(&self.heap));
                     }
                     OpCode::Return => {
                         let ret = self.pop();
@@ -302,18 +302,22 @@ impl VM {
                     OpCode::Add => {
                         let b = self.pop();
                         let a = self.pop();
-                        if let (Ok(a), Ok(b)) = (a.as_string(&self.heap), b.as_string(&self.heap)) {
-                            self.concatenate(&a, &b);
+                        if a.is_string(&self.heap) || b.is_string(&self.heap) {
+                            let a_str = a.to_string(&self.heap);
+                            let b_str = b.to_string(&self.heap);
+                            self.concatenate(&a_str, &b_str);
                         } else if let (Ok(a), Ok(b)) = (a.as_number(), b.as_number()) {
                             self.push(Value::Number(a + b));
                         } else {
-                            self.runtime_error("Operands must be two numbers or two strings.");
-                            return InterpretResult::RuntimeError;
+                            self.runtime_error(
+                                "Operands must be two numbers or at least one string.",
+                            );
                         }
                     }
                     OpCode::Sub => binary_op!(self, number, -),
                     OpCode::Mul => binary_op!(self, number, *),
                     OpCode::Div => binary_op!(self, number, /),
+                    OpCode::Mod => binary_op!(self, number, %),
                     OpCode::Less => binary_op!(self, bool, <),
                     OpCode::Greater => binary_op!(self, bool, >),
                     OpCode::Not => {

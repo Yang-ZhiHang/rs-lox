@@ -1,0 +1,32 @@
+// GCD (Greatest Common Divisor) using Euclidean algorithm
+fun gcd(a, b) {
+  while (b != 0) {
+    let temp = b;
+    b = a % b;
+    a = temp;
+  }
+  return a;
+}
+
+// LCM (Least Common Multiple)
+fun lcm(a, b) {
+  if (a == 0 or b == 0) return 0;
+  // LCM(a, b) = |a * b| / GCD(a, b)
+  let result = (a * b) / gcd(a, b);
+  if (result < 0) return -result;
+  return result;
+}
+
+// Recursive GCD for testing deep recursion
+fun gcdRecursive(a, b) {
+  if (b == 0) return a;
+  return gcdRecursive(b, a % b);
+}
+
+print "GCD of 48 and 18: " + gcd(48, 18) + "\n"; // 6
+print "GCD Recursive of 48 and 18: " + gcdRecursive(48, 18) + "\n"; // 6
+print "---\n";
+print "LCM of 48 and 18: " + lcm(48, 18) + "\n"; // 144
+print "---\n";
+print "GCD of 101 and 103 (Primes): " + gcd(101, 103) + "\n"; // 1
+print "LCM of 101 and 103: " + lcm(101, 103) + "\n"; // 10403

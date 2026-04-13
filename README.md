@@ -12,6 +12,8 @@ For this interpreter learning project, we don't strictly obey the official gramm
 2. Add `&&` and `||` logical operators.
 3. Add `switch` statement.
 4. Add `+=`、`-=`、`*=`、`/=` assignment operators.
+5. Add `%` operator.
+6. Add support for string escaping.
 
 As using raw pointer in `Rust` is unsafe, so we use `ObjIndex` to represent the index of object in the heap. This is a safe way to implement the virtual machine based interpreter.
 

@@ -53,9 +53,9 @@ pub enum TokenType {
     LeftBrace,  // '{'
     RightBrace, // '}'
     // Single character
-    Comma, Dot, Minus, Plus, Colon, Semicolon, Star, Bang, Equal, Less, Greater, Slash,
+    Comma, Dot, Minus, Plus, Colon, Semicolon, Star, Bang, Equal, Less, Greater, Slash, Percent,
     // Two character
-    BangEqual, LessEqual, GreaterEqual, EqualEqual, PlusEqual, MinusEqual, MulEqual, DivEqual,
+    BangEqual, LessEqual, GreaterEqual, EqualEqual, PlusEqual, MinusEqual, MulEqual, DivEqual, ModEqual,
     // Literal
     String, Identifier, Number,
     // Keywords
@@ -187,6 +187,14 @@ impl Tokenizer {
                     TokenType::DivEqual
                 } else {
                     TokenType::Slash
+                };
+                self.make_token(t)
+            }
+            '%' => {
+                let t = if self.next('=') {
+                    TokenType::ModEqual
+                } else {
+                    TokenType::Percent
                 };
                 self.make_token(t)
             }

@@ -1,6 +1,6 @@
 fun outer(x) {
     fun inner() {
-        print x;
+        print(x);
     }
     return inner;
 }

@@ -7,14 +7,14 @@ let a = 1;
         // print b;
         // print c;
     }
-    print a;
-    print b;
+    print(a);
+    print(b);
     // print c;
     {
         let d = 4;
-        print a;
-        print b;
-        print d;
+        print(a);
+        print(b);
+        print(d);
     }
 }
 // print a;

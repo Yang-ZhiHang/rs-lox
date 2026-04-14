@@ -3,9 +3,9 @@ let c;
   let a = "out";
   {
     let b = "in";
-    fun f() { print a; }
+    fun f() { print(a); }
     c = f;
   }
-} 
+}
 // Print "out"
 c();

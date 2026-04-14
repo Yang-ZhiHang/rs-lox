@@ -6,6 +6,7 @@ use std::{
 use crate::{
     chunk::{Chunk, Value},
     constant::MAX_UPVALUE_SIZE,
+    heap::Heap,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -40,6 +41,7 @@ impl ObjIndex {
 pub enum ObjData {
     String(ObjString),
     Function(ObjFunction),
+    Native(ObjNative),
     /// `ObjClosure` have a large static stack, in order to make the size of `ObjData` smaller, we put
     /// it in heap (Using `Box`).
     Closure(Box<ObjClosure>),
@@ -60,6 +62,9 @@ impl Display for ObjData {
             }
             ObjData::Upvalue(obj_upval) => {
                 write!(f, "{}", obj_upval)
+            }
+            ObjData::Native(_) => {
+                write!(f, "<native fn>")
             }
         }
     }
@@ -219,5 +224,17 @@ impl ObjClosure {
             upvalues: [None; MAX_UPVALUE_SIZE],
             upvalue_count,
         }
+    }
+}
+
+type NativeFn = fn(argc: usize, args: &[Option<Value>], heap: &Heap) -> Value;
+
+pub struct ObjNative {
+    pub func: NativeFn,
+}
+
+impl ObjNative {
+    pub fn new(native_fn: NativeFn) -> Self {
+        Self { func: native_fn }
     }
 }

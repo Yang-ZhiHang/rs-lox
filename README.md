@@ -9,10 +9,10 @@ Different from Tree-Walking interpreter, lox interpreter is a Single-pass interp
 For this interpreter learning project, we don't strictly obey the official grammar standard. I made some different design choices or some additional features from the original one in `Crafting Interpreters` book. As the following:
 
 1. Change `var` to `let` for variable declaration.
-2. Add `&&` and `||` logical operators.
-3. Add `switch` statement.
-4. Add `+=`、`-=`、`*=`、`/=` assignment operators.
-5. Add `%` operator.
+2. Add `switch` statement.
+3. Add `&&` and `||` logical operators.
+4. Add `%` operator.
+5. Add `+=`、`-=`、`*=`、`/=`、`%=` assignment operators.
 6. Add support for string escaping.
 
 As using raw pointer in `Rust` is unsafe, so we use `ObjIndex` to represent the index of object in the heap. This is a safe way to implement the virtual machine based interpreter.
@@ -124,6 +124,17 @@ let counter = makeCounter();
 print counter(); // 1
 print counter(); // 2
 print counter(); // 3
+```
+
+### Native function
+
+Currently supported native functions: `clock`、`print`、`println`.
+
+```
+let start = clock();
+// do something
+let end = clock();
+print("Time taken: " + (end - start) + " seconds");
 ```
 
 ## References

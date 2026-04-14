@@ -19,5 +19,5 @@ fun fibIter(n) {
   return b;
 }
 
-print "Fibonacci Recursive (10): " + fib(10) + "\n"; // 55
-print "Fibonacci Iterative (20): " + fibIter(20) + "\n"; // 6765
+println("Fibonacci Recursive (10): " + fib(10)); // 55
+println("Fibonacci Iterative (20): " + fibIter(20)); // 6765

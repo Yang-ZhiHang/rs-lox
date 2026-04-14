@@ -5,7 +5,7 @@ fun main() {
   let a = "initial";
 
   fun set() { a = "updated"; }
-  fun get() { print a; }
+  fun get() { print(a); }
 
   globalSet = set;
   globalGet = get;

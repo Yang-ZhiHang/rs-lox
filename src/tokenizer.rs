@@ -59,7 +59,7 @@ pub enum TokenType {
     // Literal
     String, Identifier, Number,
     // Keywords
-    And, Class, Else, False, For, Fun, If, Nil, Or, Print, Return, Super, This, True, Let,
+    And, Class, Else, False, For, Fun, If, Nil, Or, Return, Super, This, True, Let,
     While, Switch, Case, Default,
     // Others
     Error(&'static str), EOF,
@@ -396,7 +396,7 @@ impl Tokenizer {
             'l' => self.check_keyword(1, 2, "et", TokenType::Let),
             'n' => self.check_keyword(1, 2, "il", TokenType::Nil),
             'o' => self.check_keyword(1, 1, "r", TokenType::Or),
-            'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
+            // 'p' => self.check_keyword(1, 4, "rint", TokenType::Print),
             'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
             's' => match self.source()[self.start + 1] as char {
                 'w' => self.check_keyword(2, 4, "itch", TokenType::Switch),

@@ -3,6 +3,7 @@ pub mod common;
 pub mod constant;
 pub mod file;
 pub mod heap;
+pub mod native;
 pub mod object;
 pub mod parser;
 pub mod table;

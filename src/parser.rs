@@ -189,7 +189,6 @@ pub fn get_rule<'heap>(tt: TokenType) -> ParseRule<'heap> {
         TokenType::Number       => ParseRule::new(Some(Parser::number),   None,                 Precedence::None),
         TokenType::And          => ParseRule::new(None,                   Some(Parser::and),    Precedence::And),
         TokenType::Or           => ParseRule::new(None,                   Some(Parser::or),     Precedence::Or),
-        TokenType::Print        => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::Return       => ParseRule::new(None,                   None,                 Precedence::None),
         TokenType::True         => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
         TokenType::False        => ParseRule::new(Some(Parser::literal),  None,                 Precedence::None),
@@ -479,9 +478,7 @@ impl<'heap> Parser<'heap> {
     }
 
     pub fn statement(&mut self) {
-        if self.next(TokenType::Print) {
-            self.print_statement();
-        } else if self.next(TokenType::LeftBrace) {
+        if self.next(TokenType::LeftBrace) {
             // Blocks are a kind of statement.
             self.begin_scope();
             self.block();
@@ -499,13 +496,6 @@ impl<'heap> Parser<'heap> {
         } else {
             self.expression_statement();
         }
-    }
-
-    /// Parse a print statement, which finally emit print operation code.
-    pub fn print_statement(&mut self) {
-        self.expression();
-        self.consume(TokenType::Semicolon, "Expected ';' of expression.");
-        self.emit_byte(OpCode::Print);
     }
 
     /// Parse an expression statement which end with `;` character, we finally emit a pop to return a value.
@@ -732,7 +722,6 @@ impl<'heap> Parser<'heap> {
                 | TokenType::For
                 | TokenType::If
                 | TokenType::While
-                | TokenType::Print
                 | TokenType::Return => {
                     break;
                 }

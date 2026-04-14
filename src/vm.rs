@@ -133,6 +133,8 @@ impl VM {
             // Using `.clone()` instead of using reference to avoid `mutable borrow after immutable borrow`.
             // Chunk is read-only, so cloning it is not a problem.
             let chunk = func.chunk.clone();
+            // Perf: Make pc a local variable then assign it to `frame.pc` after the match of operation code. Which
+            // will make cache locality performs better.
             let pc: &mut usize = &mut frame.pc;
             if *pc > chunk.code().len() {
                 break;
@@ -144,10 +146,6 @@ impl VM {
                     OpCode::Constant => {
                         let val = Self::read_constant(&chunk, pc);
                         self.push(val);
-                    }
-                    OpCode::Print => {
-                        let val = self.pop();
-                        print!("{}", val.to_string(&self.heap));
                     }
                     OpCode::Return => {
                         let ret = self.pop();
@@ -197,7 +195,8 @@ impl VM {
                                     self.push(v);
                                 }
                                 None => {
-                                    self.runtime_error("Undefined variable.");
+                                    let name = self.heap.get_string(obj_idx);
+                                    self.runtime_error(&format!("Undefined variable '{}'.", name));
                                     return InterpretResult::RuntimeError;
                                 }
                             }
@@ -211,7 +210,8 @@ impl VM {
                                     e.v = v;
                                 }
                                 None => {
-                                    self.runtime_error("Undefined variable.");
+                                    let name = self.heap.get_string(obj_idx);
+                                    self.runtime_error(&format!("Undefined variable '{}'.", name));
                                     return InterpretResult::RuntimeError;
                                 }
                             }
@@ -419,6 +419,15 @@ impl VM {
         self.reset_stack();
     }
 
+    /// Define a native function with given name and function pointer, and push the native function object to
+    /// global variables.
+    pub fn define_native(&mut self, name: &str, func: fn(usize, &[Option<Value>], &Heap) -> Value) {
+        let name_idx = self.heap.write_string(name);
+        let native_obj_idx = self.heap.write_native_func(func);
+        self.global_variables
+            .set(name_idx, Value::Object(native_obj_idx));
+    }
+
     /// Reset the stack of vm.
     pub fn reset_stack(&mut self) {
         self.stack = [None; MAX_STACK_SIZE];
@@ -435,10 +444,25 @@ impl VM {
 
     /// Call the `Value` if it's `Value::Object` and the object id refers to `ObjData::Function`.
     pub fn call_value(&mut self, arg_count: usize) -> bool {
-        if let Value::Object(closure_obj_idx) = Self::peek(&self.stack, self.stack_top, arg_count)
-            && let ObjData::Closure(_) = self.heap.get(closure_obj_idx)
-        {
-            self.call(closure_obj_idx, arg_count)
+        if let Value::Object(obj_idx) = Self::peek(&self.stack, self.stack_top, arg_count) {
+            match self.heap.get(obj_idx) {
+                ObjData::Closure(_) => self.call(obj_idx, arg_count),
+                ObjData::Native(obj_native) => {
+                    let native_fn = obj_native.func;
+                    let res = native_fn(
+                        arg_count,
+                        &self.stack[self.stack_top - arg_count..self.stack_top],
+                        &self.heap,
+                    );
+                    self.stack_top -= arg_count + 1;
+                    self.push(res);
+                    true
+                }
+                _ => {
+                    self.runtime_error("Can only call function or class.");
+                    false
+                }
+            }
         } else {
             self.runtime_error("Can only call function or class.");
             false

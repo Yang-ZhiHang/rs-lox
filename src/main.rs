@@ -1,6 +1,6 @@
 use std::env;
 
-use lox::{file::read_file, parser::Parser, tokenizer::Tokenizer, vm::VM};
+use lox::{file::read_file, native::{clock_native, print_native, println_native}, parser::Parser, tokenizer::Tokenizer, vm::VM};
 
 /// Parse the source code with streaming parser.
 /// For streaming parser, it uses less memory than Tree-walking parser.
@@ -35,6 +35,9 @@ pub fn repl(_vm: &mut VM) {
 
 fn main() {
     let mut vm = VM::new();
+    vm.define_native("clock", clock_native);
+    vm.define_native("print", print_native);
+    vm.define_native("println", println_native);
     let args: Vec<String> = env::args().collect();
     match args.len() {
         1 => repl(&mut vm),

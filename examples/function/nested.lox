@@ -1,7 +1,7 @@
 fun outer() {
-    print "This is outer function";
+    println("This is outer function");
     fun inner() {
-        print "This is inner function";
+        println("This is inner function");
     }
     inner();
 }

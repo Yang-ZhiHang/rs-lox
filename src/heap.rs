@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjString, ObjUpvalue};
+use crate::{
+    chunk::Value,
+    object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjNative, ObjString, ObjUpvalue},
+};
 
 pub struct Heap {
     /// The list of object.
@@ -99,7 +102,7 @@ impl Heap {
         self.objs.push(obj);
         self.objs.len() - 1
     }
-    
+
     /// Write the object into heap at the given index.
     pub fn write_at(&mut self, obj_idx: ObjIndex, obj: ObjData) {
         self.objs[obj_idx.val] = obj;
@@ -122,6 +125,16 @@ impl Heap {
     pub fn write_func(&mut self, name_id: ObjIndex, arity: usize) -> ObjIndex {
         let func = ObjData::Function(ObjFunction::new(name_id, arity));
         let idx = self.write(func);
+        ObjIndex::new(idx)
+    }
+
+    /// Write the native function object into heap and return the index.
+    pub fn write_native_func(
+        &mut self,
+        func: fn(usize, &[Option<Value>], &Heap) -> Value,
+    ) -> ObjIndex {
+        let native_func = ObjData::Native(ObjNative::new(func));
+        let idx = self.write(native_func);
         ObjIndex::new(idx)
     }
 

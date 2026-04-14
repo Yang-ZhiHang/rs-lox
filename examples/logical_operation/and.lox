@@ -1,15 +1,15 @@
 if (true and true) {
-    print "True";
+    print("True");
 }
 
 if (true and false) {
-    print "False";
-} else print "False";
+    print("False");
+} else print("False");
 
 if (false and true) {
-    print "False";
-} else print "False";
+    print("False");
+} else print("False");
 
 if (false and false) {
-    print "True";
-} else print "False";
+    print("True");
+} else print("False");

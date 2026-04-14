@@ -1,1 +1,1 @@
-print "Hello" + ", " + "Lox" + "!"; // "Hello, Lox!"
+print("Hello" + ", " + "Lox" + "!"); // "Hello, Lox!"

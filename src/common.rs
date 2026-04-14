@@ -40,7 +40,7 @@ pub fn constant_instruction(
                     offset += 2;
                 }
             }
-            ObjData::Closure(_) | ObjData::Upvalue(_) => {
+            ObjData::Closure(_) | ObjData::Upvalue(_) | ObjData::Native(_) => {
                 unreachable!()
             }
         },

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 #[cfg(debug_assertions)]
 use crate::common::disassemble;
 use crate::{
@@ -814,9 +816,9 @@ impl<'heap> Parser<'heap> {
     pub fn current_chunk_mut(&mut self) -> &mut Chunk {
         let func_obj_idx = self.ctx().func_obj_idx;
         if let ObjData::Function(obj_func) = self.heap.get_mut(func_obj_idx) {
-            &mut obj_func.chunk
+            Rc::make_mut(&mut obj_func.chunk)
         } else {
-            unimplemented!()
+            unreachable!()
         }
     }
 

@@ -129,10 +129,10 @@ impl VM {
         loop {
             let frame = self.frames[self.frame_count - 1].as_mut().unwrap();
             let closure = self.heap.get_closure(frame.closure_obj_idx);
-            let func = self.heap.get_func(closure.func);
-            // Using `.clone()` instead of using reference to avoid `mutable borrow after immutable borrow`.
-            // Chunk is read-only, so cloning it is not a problem.
-            let chunk = func.chunk.clone();
+            let chunk = {
+                let func = self.heap.get_func(closure.func);
+                func.chunk.clone()
+            };
             // Perf: Make pc a local variable then assign it to `frame.pc` after the match of operation code. Which
             // will make cache locality performs better.
             let pc: &mut usize = &mut frame.pc;

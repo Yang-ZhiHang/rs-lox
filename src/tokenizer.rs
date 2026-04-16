@@ -89,6 +89,7 @@ impl Tokenizer {
     pub fn new(source: String) -> Self {
         Self {
             src: source,
+            #[cfg(debug_assertions)]
             tokens: vec![],
             start: 0,
             current: 0,

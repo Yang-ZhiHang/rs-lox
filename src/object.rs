@@ -1,6 +1,7 @@
 use std::{
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
+    rc::Rc,
 };
 
 use crate::{
@@ -94,7 +95,9 @@ pub struct ObjFunction {
     /// The object index of identifier of the function.
     pub name: ObjIndex,
     /// The byte chunk of function body.
-    pub chunk: Chunk,
+    /// Use `Rc` to avoid borrow checker in runtime (Unbind the reference from the heap), Making the cost of
+    /// copying avoided.
+    pub chunk: Rc<Chunk>,
     /// The number of function parameters.
     pub arity: usize,
     /// The number of upvalues the function uses.
@@ -118,7 +121,7 @@ impl ObjFunction {
     pub fn new(name: ObjIndex, arity: usize) -> Self {
         Self {
             name,
-            chunk: Chunk::new(),
+            chunk: Rc::new(Chunk::new()),
             arity,
             upvalues_count: 0,
         }

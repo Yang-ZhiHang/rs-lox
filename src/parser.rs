@@ -824,7 +824,8 @@ impl<'heap> Parser<'heap> {
 
     /// Add a identifier into the heap and get a object index.
     ///
-    /// Return the index in constant area (Which stores the object index).
+    /// Return the index in constant area (Which stores the object index). If the identifier is already exists,
+    /// it will return the existing one.
     pub fn identifier_constant(&mut self, t: Token) -> usize {
         let slice = t.name(self.tokenizer.source());
         let s = std::str::from_utf8(slice).unwrap();
@@ -981,7 +982,7 @@ impl<'heap> Parser<'heap> {
         self.named_variable(assignable, &t);
     }
 
-    /// Judge if the variable is local variable or global and emit operation code.
+    /// Judge if the variable is local variable, upvalue or global and emit operation code.
     pub fn named_variable(&mut self, assignable: bool, t: &Token) {
         let idx;
         let (op_get, op_set) = match self.get_local_idx(t) {
@@ -1055,7 +1056,7 @@ impl<'heap> Parser<'heap> {
         None
     }
 
-    /// Get the upvalue index according to token name and current context.
+    /// Get the upvalue index according to token name.
     ///
     /// Returning the upvalue index in `Option` if exists else `None`.
     pub fn get_upvalue_idx(&mut self, t: &Token) -> Option<usize> {

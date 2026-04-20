@@ -2,9 +2,9 @@ let globalSet;
 let globalGet;
 
 fun main() {
-  let a = "initial";
+  let a = "Initial";
 
-  fun set() { a = "updated"; }
+  fun set() { a = "Updated"; }
   fun get() { print(a); }
 
   globalSet = set;

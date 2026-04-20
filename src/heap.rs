@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     chunk::Value,
-    object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjNative, ObjString, ObjUpvalue},
+    object::{ObjClosure, ObjData, ObjFunction, ObjIndex, ObjNative, ObjString},
 };
 
 pub struct Heap {
@@ -80,7 +80,7 @@ impl Heap {
     #[inline(always)]
     /// Return a immutable reference of upvalue object.
     /// Ensure the passing-in index is a index of upvalue object.
-    pub fn get_upvalue(&self, idx: ObjIndex) -> &ObjUpvalue {
+    pub fn get_upvalue(&self, idx: ObjIndex) -> &Value {
         match self.objs.get(idx.val) {
             Some(ObjData::Upvalue(v)) => v,
             _ => unreachable!(),
@@ -90,7 +90,7 @@ impl Heap {
     #[inline(always)]
     /// Return a mutable reference of upvalue object.
     /// Ensure the passing-in index is a index of upvalue object.
-    pub fn get_upvalue_mut(&mut self, idx: ObjIndex) -> &mut ObjUpvalue {
+    pub fn get_upvalue_mut(&mut self, idx: ObjIndex) -> &mut Value {
         match self.objs.get_mut(idx.val) {
             Some(ObjData::Upvalue(v)) => v,
             _ => unreachable!(),
@@ -145,8 +145,8 @@ impl Heap {
     }
 
     /// Write the upvalue object into heap and return the index.
-    pub fn write_upvalue(&mut self, upvalue: ObjUpvalue) -> ObjIndex {
-        let idx = self.write(ObjData::Upvalue(upvalue));
+    pub fn write_upvalue(&mut self, upval: Value) -> ObjIndex {
+        let idx = self.write(ObjData::Upvalue(upval));
         ObjIndex::new(idx)
     }
 }

@@ -1,8 +1,10 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     chunk::{Chunk, OpCode, Value},
     constant::{MAX_FRAME_SIZE, MAX_STACK_SIZE, MAX_UPVALUE_SIZE},
     heap::Heap,
-    object::{ObjClosure, ObjData, ObjIndex, ObjUpvalue},
+    object::{ObjClosure, ObjData, ObjIndex, UpvalueState},
     table::HashTable,
 };
 
@@ -85,10 +87,10 @@ pub struct VM {
     stack_top: usize,
     /// The hash table to store identifier.
     global_variables: HashTable,
-    /// The array storing the index of open upvalues in vm's heap.
-    open_upvalues: [Option<ObjIndex>; MAX_UPVALUE_SIZE],
+    /// The array storing the index of upvalues in vm's heap.
+    upvalues: [Option<Rc<RefCell<UpvalueState>>>; MAX_UPVALUE_SIZE],
     /// The amount of open upvalues.
-    open_upvalues_count: usize,
+    upvalues_count: usize,
 }
 
 impl Default for VM {
@@ -108,8 +110,8 @@ impl VM {
             stack: [None; MAX_STACK_SIZE],
             stack_top: 0,
             global_variables: HashTable::new(),
-            open_upvalues: [None; MAX_UPVALUE_SIZE],
-            open_upvalues_count: 0,
+            upvalues: [const { None }; MAX_UPVALUE_SIZE],
+            upvalues_count: 0,
         }
     }
 
@@ -236,18 +238,18 @@ impl VM {
                                 let is_local = Self::read_byte(&chunk, pc);
                                 let idx = Self::read_byte(&chunk, pc) as usize;
                                 // Get the upvalue index in stack (Unclosed upvalue).
+                                // BUG: The upvalues of closure and vm not synchronized.
                                 new_closure.upvalues[i] = if is_local != 0 {
-                                    let upval_obj_idx = Self::capture_upvalue(
+                                    let obj_upval = Self::capture_upvalue(
                                         frame.slot_offset + idx,
-                                        &mut self.heap,
-                                        &mut self.open_upvalues,
-                                        &mut self.open_upvalues_count,
+                                        &mut self.upvalues,
+                                        &mut self.upvalues_count,
                                     );
-                                    Some(upval_obj_idx)
+                                    Some(obj_upval)
                                 } else {
                                     let current_closure =
                                         self.heap.get_closure(frame.closure_obj_idx);
-                                    current_closure.upvalues[idx]
+                                    current_closure.upvalues[idx].clone()
                                 }
                             }
                             let closure_idx = self.heap.write_closure(new_closure);
@@ -260,13 +262,15 @@ impl VM {
                         // Read the index in upvalues stack.
                         let slot = Self::read_byte(&chunk, pc);
                         let closure = self.heap.get_closure(frame.closure_obj_idx);
-                        let upval_obj_idx = closure.upvalues[slot as usize].unwrap();
-                        let upval_obj = self.heap.get_upvalue(upval_obj_idx);
-                        if upval_obj.is_open() {
-                            let val = self.stack[upval_obj.as_location()].unwrap();
+                        let obj_upval_ref =
+                            closure.upvalues[slot as usize].as_ref().unwrap().clone();
+                        let obj_upval = obj_upval_ref.borrow();
+                        if obj_upval.is_open() {
+                            let idx = obj_upval.as_idx();
+                            let val = self.stack[idx].unwrap();
                             self.push(val);
-                        } else if upval_obj.is_closed() {
-                            let val = *upval_obj.as_val();
+                        } else if obj_upval.is_closed() {
+                            let val = obj_upval.as_val(&self.heap);
                             self.push(val);
                         } else {
                             // TODO: Error handling
@@ -274,14 +278,18 @@ impl VM {
                     }
                     OpCode::SetUpvalue => {
                         let slot = Self::read_byte(&chunk, pc);
-                        let closure = self.heap.get_closure(frame.closure_obj_idx);
-                        let upval_obj_idx = closure.upvalues[slot as usize].unwrap();
-                        let upval_obj = self.heap.get_upvalue_mut(upval_obj_idx);
+                        let mut upvalues = self
+                            .heap
+                            .get_closure(frame.closure_obj_idx)
+                            .upvalues
+                            .clone();
+                        let obj_upval_ref = upvalues[slot as usize].as_mut().unwrap().clone();
+                        let mut obj_upval = obj_upval_ref.borrow_mut();
                         let val = Self::peek(&self.stack, self.stack_top, 0);
-                        if upval_obj.is_open() {
-                            self.stack[upval_obj.as_location()] = Some(val);
-                        } else if upval_obj.is_closed() {
-                            *upval_obj.as_val_mut() = val;
+                        if obj_upval.is_open() {
+                            self.stack[obj_upval.as_idx()] = Some(val);
+                        } else if obj_upval.is_closed() {
+                            obj_upval.set(&mut self.heap, val);
                         } else {
                             // TODO: Error handling.
                         }
@@ -342,6 +350,7 @@ impl VM {
         InterpretResult::Ok
     }
 
+    #[inline(always)]
     /// Read a byte data from given chunk and increase pc.
     ///
     /// We pass chunk into the function so that `read_byte` doesn't need to pay attention
@@ -366,6 +375,7 @@ impl VM {
         chunk.constants()[index as usize]
     }
 
+    #[inline(always)]
     /// Push a value to the stack of vm.
     pub fn push(&mut self, value: Value) {
         if self.stack_top == MAX_STACK_SIZE {
@@ -376,6 +386,7 @@ impl VM {
         self.stack_top += 1;
     }
 
+    #[inline(always)]
     /// Pop a value from the stack of vm.
     pub fn pop(&mut self) -> Value {
         if self.stack_top == 0 {
@@ -495,34 +506,33 @@ impl VM {
     /// Allocate a memory in heap for upvalue.
     pub fn capture_upvalue(
         idx: usize,
-        heap: &mut Heap,
-        open_upvalues: &mut [Option<ObjIndex>],
-        open_upvalues_count: &mut usize,
-    ) -> ObjIndex {
+        upvalues: &mut [Option<Rc<RefCell<UpvalueState>>>],
+        upvalues_count: &mut usize,
+    ) -> Rc<RefCell<UpvalueState>> {
         // 1. Firstly search for existed upvalue object.
-        for upval_obj_idx in open_upvalues.iter().flatten() {
-            let obj_upval = heap.get_upvalue(*upval_obj_idx);
-            if !obj_upval.is_closed() && obj_upval.as_location() == idx {
-                return *upval_obj_idx;
+        for upval in upvalues.iter().flatten() {
+            if let UpvalueState::Open(upval_idx) = *upval.borrow()
+                && upval_idx == idx
+            {
+                return upval.clone();
             }
         }
-        // 2. Create a new upvalue object if it's not exist.
-        let obj_upval = ObjUpvalue::location(idx);
-        let upval_obj_idx = heap.write_upvalue(obj_upval);
-        open_upvalues[*open_upvalues_count] = Some(upval_obj_idx);
-        *open_upvalues_count += 1;
-        upval_obj_idx
+        // 2. Create a new open upvalue object if it's not exist.
+        let obj_upval = Rc::new(RefCell::new(UpvalueState::open(idx)));
+        upvalues[*upvalues_count] = Some(obj_upval.clone());
+        *upvalues_count += 1;
+        obj_upval
     }
 
-    /// Close the upvalue at the top of the stack.
+    /// Close the upvalue at the top of the stack by copying the value to heap and change the upvalue object to
+    /// closed.
     pub fn close_upvalue(&mut self, offset: usize) {
-        for upval_obj_idx in self.open_upvalues.iter().flatten() {
-            let obj_upval = self.heap.get_upvalue(*upval_obj_idx);
-            if !obj_upval.is_closed() && obj_upval.as_location() >= offset {
-                let val = self.stack[obj_upval.as_location()].unwrap();
-                let closed_upval = ObjUpvalue::closed(val);
-                self.heap
-                    .write_at(*upval_obj_idx, ObjData::Upvalue(closed_upval));
+        for obj_upval_ref in self.upvalues.iter_mut().flatten() {
+            let mut obj_upval = obj_upval_ref.borrow_mut();
+            if !obj_upval.is_closed() && obj_upval.as_idx() >= offset {
+                let val = self.stack[obj_upval.as_idx()].unwrap();
+                let upval_obj_idx = self.heap.write_upvalue(val);
+                *obj_upval = UpvalueState::closed(upval_obj_idx);
             }
         }
     }

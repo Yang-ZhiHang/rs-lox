@@ -2,9 +2,11 @@ fun outer() {
   let x = "outside";
   fun inner() {
     x = "inside";
+    println(x);
   }
   inner();
+  x = "outside";
   println(x);
 }
-// Print "inside"
+// Print "inside", "outside"
 outer();

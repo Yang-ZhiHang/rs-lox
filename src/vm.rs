@@ -151,6 +151,7 @@ impl VM {
                     }
                     OpCode::Return => {
                         let ret = self.pop();
+                        // Close the upvalues of current function.
                         self.close_upvalue(frame_slot_offset);
                         self.frame_count -= 1;
                         if self.frame_count == 0 {
@@ -238,7 +239,6 @@ impl VM {
                                 let is_local = Self::read_byte(&chunk, pc);
                                 let idx = Self::read_byte(&chunk, pc) as usize;
                                 // Get the upvalue index in stack (Unclosed upvalue).
-                                // BUG: The upvalues of closure and vm not synchronized.
                                 new_closure.upvalues[i] = if is_local != 0 {
                                     let obj_upval = Self::capture_upvalue(
                                         frame.slot_offset + idx,
@@ -496,7 +496,6 @@ impl VM {
             return false;
         }
         // Create a new call frame for the function call.
-        // `self.stack[slot_offset]` must be a object index of function.
         let frame = CallFrame::new(closure_obj_idx, self.stack_top - arg_count - 1);
         self.frames[self.frame_count] = Some(frame);
         self.frame_count += 1;

@@ -395,7 +395,7 @@ impl<'heap> Parser<'heap> {
             self.ctx().scope_depth,
         );
         self.update_ctx(ctx);
-        // There doesn't have a corresponding `end_scope`. Because we end Compiler completely when we reach the end
+        // There doesn't have a corresponding `end_scope`. Because we end compiler completely when we reach the end
         // of the function body, there’s no need to close the lingering outermost scope.
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expected '(' after function name.");
@@ -782,6 +782,10 @@ impl<'heap> Parser<'heap> {
     /// Write `Opcode::Return` to chunk and back to caller context.
     ///
     /// Returning the function object index of callee.
+    /// 
+    /// [ATTENTION]
+    /// Upvalue will be automatically closed according to the `Return` operation code in runtime. So we don't need
+    /// to care about it in `end_compile` function and emitting `CloseUpvalue` after this fucntion.
     pub fn end_compile(&mut self) -> ObjIndex {
         self.emit_return();
         #[cfg(debug_assertions)]

@@ -226,6 +226,7 @@ impl ObjClosure {
     }
 }
 
+/// Native function takes `heap` as an argument to access the heap in runtime, so that string print works well.
 type NativeFn = fn(argc: usize, args: &[Option<Value>], heap: &Heap) -> Value;
 
 pub struct ObjNative {

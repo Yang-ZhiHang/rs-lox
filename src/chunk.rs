@@ -58,7 +58,7 @@ pub enum Value {
     Number(f64),
     /// A heap-allocated Lox object, referenced by index.
     ///
-    /// `ObjId` (an index into the VM's `Heap`) is stored rather than
+    /// `ObjIndex` (an index into the VM's `Heap` vector) is stored rather than
     /// `ObjData` so that `Value` remains `Copy` trait.
     Object(ObjIndex),
 }
